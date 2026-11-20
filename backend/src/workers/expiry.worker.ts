@@ -69,8 +69,12 @@ export async function runExpiryCheck(): Promise<number> {
     if (expiredCount > 0) {
       console.log(`[EXPIRY WORKER] Berhasil memproses ${expiredCount} pesanan kedaluwarsa.`);
     }
-  } catch (error) {
-    console.error('[EXPIRY WORKER ERROR]:', error);
+  } catch (error: any) {
+    if (error?.code === 'P1001' || error?.message?.includes("Can't reach database")) {
+      console.warn('[EXPIRY WORKER] Menunggu koneksi database PostgreSQL di port 5432...');
+    } else {
+      console.error('[EXPIRY WORKER ERROR]:', error?.message || error);
+    }
   }
 
   return expiredCount;

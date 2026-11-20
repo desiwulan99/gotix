@@ -13,7 +13,7 @@ import { RegisterPage } from './pages/RegisterPage';
 
 export const App: React.FC = () => {
   return (
-    <div className="min-h-screen flex flex-col bg-obsidian text-ivory-white">
+    <div className="min-h-screen flex flex-col bg-ivory text-charcoal selection:bg-soft-lavender selection:text-plum font-inter">
       <Navbar />
       <main className="flex-grow">
         <Routes>

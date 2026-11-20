@@ -36,52 +36,54 @@ export const RegisterPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-[80vh] flex items-center justify-center px-6 py-12">
-      <div className="w-full max-w-md bg-charcoal border border-royal-plum/50 rounded-xl p-8 shadow-2xl">
+    <div className="min-h-[80vh] flex items-center justify-center px-6 py-12 bg-ivory text-charcoal">
+      <div className="w-full max-w-md bg-white border border-soft-gray rounded-3xl p-8 sm:p-10 shadow-soft-card">
         <div className="text-center mb-8">
-          <span className="text-2xl font-black font-cinzel tracking-widest text-ivory-white">
+          <span className="text-2xl font-black font-cinzel tracking-widest text-charcoal">
             GOTIX
           </span>
-          <h2 className="text-sm font-bold font-cinzel text-silver-mist mt-2">
+          <h2 className="text-sm font-bold font-cinzel text-muted-charcoal mt-2">
             BUAT AKUN BARU
           </h2>
-          <p className="text-xs text-silver-mist/60 mt-1">Unlock the Unknown.</p>
+          <p className="text-xs text-secondary mt-1 font-light">Discover the Extraordinary.</p>
         </div>
 
         {errorMsg && (
-          <div className="mb-6 p-3 rounded bg-red-950/60 border border-red-500/40 text-red-200 text-xs flex items-center gap-2">
-            <ShieldAlert className="w-4 h-4 text-red-400 shrink-0" />
+          <div className="mb-6 p-3.5 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-center gap-2">
+            <ShieldAlert className="w-4 h-4 text-red-500 shrink-0" />
             <span>{errorMsg}</span>
           </div>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4 text-xs">
           <div>
-            <label className="block text-silver-mist mb-1 font-medium">Nama Lengkap</label>
+            <label className="block text-muted-charcoal mb-1.5 font-medium">Nama Lengkap</label>
             <input
               type="text"
               required
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
               placeholder="Misal: Alex Vance"
-              className="w-full bg-obsidian border border-royal-plum/60 rounded px-3 py-2.5 text-ivory-white focus:outline-none focus:border-muted-violet"
+              className="w-full bg-pearl border border-soft-gray rounded-xl px-4 py-3 text-charcoal placeholder-secondary/60 focus:outline-none focus:border-royal-mauve focus:bg-white transition-all shadow-xs"
             />
           </div>
 
           <div>
-            <label className="block text-silver-mist mb-1 font-medium">Email</label>
+            <label className="block text-muted-charcoal mb-1.5 font-medium">Email</label>
             <input
               type="email"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="nama@email.com"
-              className="w-full bg-obsidian border border-royal-plum/60 rounded px-3 py-2.5 text-ivory-white focus:outline-none focus:border-muted-violet"
+              className="w-full bg-pearl border border-soft-gray rounded-xl px-4 py-3 text-charcoal placeholder-secondary/60 focus:outline-none focus:border-royal-mauve focus:bg-white transition-all shadow-xs"
             />
           </div>
 
           <div>
-            <label className="block text-silver-mist mb-1 font-medium">Password (Min 6 Karakter)</label>
+            <label className="block text-muted-charcoal mb-1.5 font-medium">
+              Password (Min 6 Karakter)
+            </label>
             <input
               type="password"
               required
@@ -89,22 +91,22 @@ export const RegisterPage: React.FC = () => {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
-              className="w-full bg-obsidian border border-royal-plum/60 rounded px-3 py-2.5 text-ivory-white focus:outline-none focus:border-muted-violet"
+              className="w-full bg-pearl border border-soft-gray rounded-xl px-4 py-3 text-charcoal placeholder-secondary/60 focus:outline-none focus:border-royal-mauve focus:bg-white transition-all shadow-xs"
             />
           </div>
 
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full py-3 rounded bg-royal-plum hover:bg-royal-plum/80 disabled:opacity-40 text-ivory-white text-xs font-bold uppercase tracking-widest transition-colors shadow-lg shadow-royal-plum/20 mt-2"
+            className="w-full py-3.5 rounded-xl bg-royal-mauve hover:bg-plum disabled:opacity-40 text-white text-xs font-semibold uppercase tracking-wider transition-all shadow-sm hover:shadow mt-3"
           >
             {isLoading ? 'Mendaftarkan...' : 'Daftar Sekarang'}
           </button>
         </form>
 
-        <div className="mt-6 text-center text-xs text-silver-mist/60 border-t border-royal-plum/20 pt-4">
+        <div className="mt-8 text-center text-xs text-secondary border-t border-soft-gray/60 pt-5 font-light">
           Sudah punya akun?{' '}
-          <Link to="/login" className="text-muted-violet hover:text-ivory-white font-semibold">
+          <Link to="/login" className="text-plum hover:text-charcoal font-semibold">
             Masuk di sini
           </Link>
         </div>

@@ -4,31 +4,31 @@
 
 @layer base {
   body {
-    background-color: #0D0B10;
-    color: #F2EFF4;
+    background-color: #F9F6F2;
+    color: #302936;
     font-family: 'Inter', sans-serif;
   }
 
   h1, h2, h3, h4, h5, h6 {
     font-family: 'Cinzel', serif;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.03em;
   }
 }
 
-/* Custom Scrollbar Gothic Luxury */
+/* Subtle Gothic Luxury Scrollbar */
 ::-webkit-scrollbar {
-  width: 8px;
+  width: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #0D0B10;
+  background: #F9F6F2;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #392544;
-  border-radius: 4px;
+  background: #B9A5C8;
+  border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #80658F;
+  background: #957BA5;
 }

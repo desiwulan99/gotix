@@ -37,7 +37,6 @@ export const CheckoutPage: React.FC = () => {
     fetchOrder();
   }, [id]);
 
-  // Countdown timer interval
   useEffect(() => {
     if (timeLeft <= 0) return;
 
@@ -79,7 +78,11 @@ export const CheckoutPage: React.FC = () => {
   };
 
   const handleCancel = async () => {
-    if (!window.confirm('Apakah Anda yakin ingin membatalkan pesanan ini? Kuota akan segera dikembalikan.')) {
+    if (
+      !window.confirm(
+        'Apakah Anda yakin ingin membatalkan pesanan ini? Kuota tiket akan segera dikembalikan.'
+      )
+    ) {
       return;
     }
     setIsProcessing(true);
@@ -95,36 +98,50 @@ export const CheckoutPage: React.FC = () => {
   };
 
   if (isLoading) {
-    return <div className="text-center py-24 text-silver-mist">Memuat pesanan...</div>;
+    return <div className="text-center py-24 text-secondary text-xs">Memuat pesanan...</div>;
   }
 
   if (!order) {
     return (
       <div className="text-center py-24">
-        <p className="text-red-400">Pesanan tidak ditemukan.</p>
+        <p className="text-red-500 text-xs">Pesanan tidak ditemukan.</p>
       </div>
     );
   }
 
-  const isExpired = order.status === 'EXPIRED' || (order.status === 'PENDING_PAYMENT' && timeLeft <= 0);
+  const isExpired =
+    order.status === 'EXPIRED' || (order.status === 'PENDING_PAYMENT' && timeLeft <= 0);
 
   return (
-    <div className="max-w-3xl mx-auto py-12 px-6 min-h-screen">
-      <div className="bg-charcoal border border-royal-plum/50 rounded-xl p-6 sm:p-8 shadow-2xl">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-royal-plum/30 gap-4">
+    <div className="max-w-3xl mx-auto py-12 px-6 min-h-screen bg-ivory text-charcoal">
+      <div className="bg-white border border-soft-gray rounded-3xl p-6 sm:p-10 shadow-soft-card">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-soft-gray gap-4">
           <div>
-            <span className="text-[11px] uppercase tracking-widest text-silver-mist/60">Checkout Tiket</span>
-            <h1 className="text-xl sm:text-2xl font-bold font-cinzel text-ivory-white">
+            <span className="text-[11px] uppercase tracking-widest text-secondary font-semibold">
+              Checkout Pemesanan
+            </span>
+            <h1 className="text-xl sm:text-2xl font-bold font-cinzel text-charcoal mt-0.5">
               {order.event?.title}
             </h1>
           </div>
 
           {/* Countdown Display */}
-          <div className="flex items-center gap-2.5 px-4 py-2 rounded-lg bg-obsidian border border-royal-plum">
-            <Clock className={`w-4 h-4 ${isExpired ? 'text-red-400' : 'text-muted-violet animate-pulse'}`} />
+          <div className="flex items-center gap-2.5 px-4 py-2 rounded-2xl bg-pearl border border-soft-gray shadow-xs">
+            <Clock
+              className={`w-4 h-4 ${
+                isExpired ? 'text-red-500' : 'text-royal-mauve animate-pulse'
+              }`}
+            />
             <div>
-              <div className="text-[10px] uppercase text-silver-mist/60 font-semibold">Sisa Waktu Bayar</div>
-              <div className={`text-base font-black font-mono tracking-wider ${isExpired ? 'text-red-400' : 'text-ivory-white'}`}>
+              <div className="text-[10px] uppercase text-secondary font-semibold">
+                Sisa Waktu Bayar
+              </div>
+              <div
+                className={`text-sm font-black font-mono tracking-wider ${
+                  isExpired ? 'text-red-600' : 'text-charcoal'
+                }`}
+              >
                 {isExpired ? 'KEDALUWARSA' : formatCountdown(timeLeft)}
               </div>
             </div>
@@ -132,33 +149,33 @@ export const CheckoutPage: React.FC = () => {
         </div>
 
         {errorMsg && (
-          <div className="my-6 p-4 rounded bg-red-950/60 border border-red-500/40 text-red-200 text-xs flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
+          <div className="my-6 p-4 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0 text-red-500" />
             <span>{errorMsg}</span>
           </div>
         )}
 
         {isSuccess && (
-          <div className="my-6 p-4 rounded bg-emerald-950/60 border border-emerald-500/40 text-emerald-200 text-xs flex items-center gap-2">
-            <ShieldCheck className="w-5 h-5 shrink-0 text-emerald-400" />
+          <div className="my-6 p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 shrink-0 text-emerald-500" />
             <span>Pembayaran Berhasil! Tiket resmi sedang diterbitkan dan Anda akan dialihkan...</span>
           </div>
         )}
 
         {/* Rincian Pesanan */}
-        <div className="py-6 border-b border-royal-plum/30">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-silver-mist/70 mb-4 font-cinzel">
-            Rincian Item Pesanan
+        <div className="py-6 border-b border-soft-gray">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-muted-charcoal mb-4 font-cinzel">
+            Rincian Item Tiket
           </h3>
 
           <div className="space-y-3">
             {order.items.map((item) => (
               <div key={item.id} className="flex justify-between items-center text-xs">
                 <div>
-                  <span className="font-semibold text-ivory-white">{item.ticketType?.name}</span>
-                  <span className="text-silver-mist/60 ml-2">x {item.quantity}</span>
+                  <span className="font-semibold text-charcoal">{item.ticketType?.name}</span>
+                  <span className="text-secondary ml-2 font-light">x {item.quantity}</span>
                 </div>
-                <span className="font-medium text-silver-mist">
+                <span className="font-medium text-charcoal">
                   Rp {(item.quantity * Number(item.unitPrice)).toLocaleString('id-ID')}
                 </span>
               </div>
@@ -167,9 +184,9 @@ export const CheckoutPage: React.FC = () => {
         </div>
 
         {/* Total Bayar */}
-        <div className="py-6 border-b border-royal-plum/30 flex justify-between items-center">
-          <span className="text-sm font-semibold text-ivory-white font-cinzel">Total Pembayaran</span>
-          <span className="text-xl font-bold font-cinzel text-ivory-white">
+        <div className="py-6 border-b border-soft-gray flex justify-between items-center">
+          <span className="text-sm font-semibold text-charcoal font-cinzel">Total Pembayaran</span>
+          <span className="text-xl font-bold font-cinzel text-plum">
             Rp {Number(order.totalAmount).toLocaleString('id-ID')}
           </span>
         </div>
@@ -178,8 +195,10 @@ export const CheckoutPage: React.FC = () => {
         <div className="mt-8 flex flex-col sm:flex-row items-center gap-4">
           <button
             onClick={handlePay}
-            disabled={isProcessing || isExpired || isSuccess || order.status !== 'PENDING_PAYMENT'}
-            className="w-full sm:flex-1 py-3.5 rounded bg-royal-plum hover:bg-royal-plum/80 disabled:opacity-30 disabled:cursor-not-allowed text-ivory-white text-xs font-bold uppercase tracking-widest transition-all shadow-lg shadow-royal-plum/20"
+            disabled={
+              isProcessing || isExpired || isSuccess || order.status !== 'PENDING_PAYMENT'
+            }
+            className="w-full sm:flex-1 py-3.5 rounded-xl bg-royal-mauve hover:bg-plum disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold uppercase tracking-wider transition-all shadow-sm hover:shadow"
           >
             {isProcessing ? 'Memproses...' : 'Bayar Sekarang (Simulasi)'}
           </button>
@@ -187,7 +206,7 @@ export const CheckoutPage: React.FC = () => {
           <button
             onClick={handleCancel}
             disabled={isProcessing || isSuccess || order.status !== 'PENDING_PAYMENT'}
-            className="w-full sm:w-auto px-6 py-3.5 rounded bg-obsidian hover:bg-red-950/40 border border-royal-plum/50 hover:border-red-500/50 text-silver-mist hover:text-red-300 text-xs font-semibold uppercase tracking-wider transition-all flex items-center justify-center gap-2"
+            className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-white hover:bg-red-50 border border-soft-gray hover:border-red-300 text-muted-charcoal hover:text-red-600 text-xs font-semibold uppercase tracking-wider transition-all flex items-center justify-center gap-2"
           >
             <XCircle className="w-4 h-4" />
             <span>Batalkan Pesanan</span>

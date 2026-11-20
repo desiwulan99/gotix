@@ -14,6 +14,14 @@ const server = app.listen(ENV.PORT, async () => {
   console.log(`  Health Check: http://localhost:${ENV.PORT}/health`);
   console.log(`=========================================`);
 
+  try {
+    await prisma.$connect();
+    console.log('[DATABASE] Berhasil terhubung ke database PostgreSQL.');
+  } catch (_err) {
+    console.warn('[DATABASE] PostgreSQL belum terdeteksi aktif di port 5432.');
+    console.warn('[DATABASE] Silakan jalankan `docker-compose up -d postgres` untuk menyalakan database.');
+  }
+
   // Mulai background worker untuk expiry pesanan 15 menit
   startExpiryWorker();
 });
