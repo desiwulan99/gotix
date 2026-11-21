@@ -30,7 +30,7 @@ export const EventCard: React.FC<EventCardProps> = ({ event }) => {
     >
       {/* Poster Tarot Rasio 2:3 */}
       <div className="relative w-full">
-        <EventPoster id={event.id} title={event.title} />
+        <EventPoster id={event.id} title={event.title} imageUrl={event.imageUrl} />
 
         {/* Badge SOLD OUT jika kuota habis */}
         {isSoldOut && (

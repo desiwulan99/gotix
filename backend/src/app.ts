@@ -11,6 +11,9 @@ import { prisma } from './config/prisma';
 export const createApp = (): Application => {
   const app = express();
 
+  // 0. Trust reverse proxy (Nginx di Docker) untuk membaca X-Forwarded-For dengan benar
+  app.set('trust proxy', 1);
+
   // 1. Keamanan Header HTTP dengan Helmet
   app.use(helmet());
 
@@ -38,6 +41,7 @@ export const createApp = (): Application => {
     max: 100, // Maksimal 100 request per window per IP
     standardHeaders: true,
     legacyHeaders: false,
+    validate: { xForwardedForHeader: false },
     message: {
       success: false,
       error: {
@@ -46,7 +50,9 @@ export const createApp = (): Application => {
       },
     },
   });
-  app.use('/api/auth', authLimiter);
+  if (ENV.NODE_ENV !== 'test') {
+    app.use('/api/auth', authLimiter);
+  }
 
   // 5. Health check endpoint (memeriksa konektivitas PostgreSQL)
   const healthCheckHandler = async (_req: Request, res: Response) => {

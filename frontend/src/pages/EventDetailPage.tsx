@@ -5,7 +5,7 @@ import { Event } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/Button';
 import { EventPoster } from '../components/EventPoster';
-import { maxSelectable, calcTotal, formatRupiah } from '../lib/ticketRules';
+import { calcTotal, formatRupiah } from '../lib/ticketRules';
 
 export const EventDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -57,21 +57,12 @@ export const EventDetailPage: React.FC = () => {
   // Hitung total tiket yang sedang dipilih
   const totalTicketsSelected = Object.values(quantities).reduce((a, b) => a + b, 0);
 
-  // Hitung tiket yang dipilih pada tipe lain
-  const getSelectedInOtherTypes = (currentTypeId: string) => {
-    return Object.entries(quantities).reduce((sum, [tId, qty]) => {
-      return sum + (tId === currentTypeId ? 0 : qty);
-    }, 0);
-  };
-
   const handleStepperChange = (ticketTypeId: string, delta: number, remaining: number) => {
     const currentQty = quantities[ticketTypeId] || 0;
-    const selectedInOthers = getSelectedInOtherTypes(ticketTypeId);
-    const maxAllowed = maxSelectable(remaining, selectedInOthers, 0);
-
     const targetQty = currentQty + delta;
     if (targetQty < 0) return;
-    if (targetQty > maxAllowed) return;
+    // Dibatasi langsung oleh sisa kuota event (misal 50 dari 50, maka maksimal 50)
+    if (targetQty > remaining) return;
 
     setQuantities({
       ...quantities,
@@ -149,7 +140,7 @@ export const EventDetailPage: React.FC = () => {
         {/* Kolom Kiri: Poster Kartu Tarot Besar */}
         <div className="lg:col-span-5 flex flex-col items-center">
           <div className="w-full max-w-sm sticky top-24">
-            <EventPoster id={event.id} title={event.title} />
+            <EventPoster id={event.id} title={event.title} imageUrl={event.imageUrl} />
           </div>
         </div>
 
@@ -193,11 +184,16 @@ export const EventDetailPage: React.FC = () => {
           {/* Bagian Pilihan Tiket (Regular / VIP) */}
           <div className="space-y-6 pt-4 border-t border-silver-mist/15">
             <div>
-              <h2 className="font-cinzel text-base tracking-[0.1em] text-ivory">
-                PILIHAN TIKET
-              </h2>
-              <p className="text-xs text-silver-mist/60 font-inter mt-0.5">
-                Maksimal 4 tiket aktif per pemesan untuk setiap event.
+              <div className="flex items-center justify-between mb-1">
+                <h2 className="font-cinzel text-base tracking-[0.1em] text-ivory">
+                  PILIHAN TIKET
+                </h2>
+                <span className="text-[11px] font-cinzel text-dusk-rose tracking-wider uppercase">
+                  ✦ REAL-TIME QUOTA ALLOCATION
+                </span>
+              </div>
+              <p className="text-xs text-silver-mist/70 font-inter leading-relaxed">
+                Pilih jumlah tiket yang diinginkan. Pemesanan tiket dibatasi langsung oleh sisa kuota kursi yang tersedia pada setiap kategori pertunjukan.
               </p>
             </div>
 
@@ -207,8 +203,7 @@ export const EventDetailPage: React.FC = () => {
                 const remaining = tt.remaining ?? (tt.quota - tt.reservedCount);
                 const isSoldOut = remaining <= 0;
                 const currentQty = quantities[tt.id] || 0;
-                const selectedInOthers = getSelectedInOtherTypes(tt.id);
-                const maxAllowed = maxSelectable(remaining, selectedInOthers, 0);
+                const isMaxReached = currentQty >= remaining;
 
                 // Progress bar sisa kuota tipis
                 const percentRemaining = tt.quota > 0 ? (remaining / tt.quota) * 100 : 0;
@@ -240,9 +235,9 @@ export const EventDetailPage: React.FC = () => {
                             </span>
                           ) : (
                             <span>
-                              Sisa kuota:{' '}
+                              Total kuota event:{' '}
                               <strong className="text-ivory font-semibold">{remaining}</strong> dari{' '}
-                              {tt.quota}
+                              {tt.quota} kursi tersedia
                             </span>
                           )}
                         </div>
@@ -266,6 +261,7 @@ export const EventDetailPage: React.FC = () => {
                           disabled={currentQty <= 0 || isSoldOut}
                           className="w-10 h-10 flex items-center justify-center bg-obsidian border border-silver-mist/30 text-ivory hover:border-dusk-rose disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-base font-inter"
                           aria-label={`Kurangi ${tt.name}`}
+                          title={currentQty <= 0 ? 'Jumlah minimal 0' : `Kurangi 1 ${tt.name}`}
                         >
                           −
                         </button>
@@ -277,9 +273,16 @@ export const EventDetailPage: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => handleStepperChange(tt.id, 1, remaining)}
-                          disabled={currentQty >= maxAllowed || isSoldOut}
+                          disabled={isMaxReached || isSoldOut}
                           className="w-10 h-10 flex items-center justify-center bg-obsidian border border-silver-mist/30 text-ivory hover:border-dusk-rose disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-base font-inter"
                           aria-label={`Tambah ${tt.name}`}
+                          title={
+                            isSoldOut
+                              ? 'Tiket habis terjual'
+                              : isMaxReached
+                              ? `Maksimal kuota (${remaining} kursi) telah tercapai`
+                              : `Tambah 1 ${tt.name}`
+                          }
                         >
                           +
                         </button>

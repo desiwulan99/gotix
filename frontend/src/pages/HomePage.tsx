@@ -30,12 +30,22 @@ export const HomePage: React.FC = () => {
     fetchEvents();
   }, []);
 
+  const getEventCategory = (e: Event): string => {
+    const text = `${e.title} ${e.description}`.toLowerCase();
+    if (text.includes('orchestra') || text.includes('symphony') || text.includes('orkestra')) return 'ORCHESTRA';
+    if (text.includes('masquerade') || text.includes('teater') || text.includes('drama')) return 'TEATER & SENI';
+    if (text.includes('electronic') || text.includes('gathering') || text.includes('konser')) return 'KONSER & MUSIK';
+    if (text.includes('canvas') || text.includes('sculpture') || text.includes('exhibition') || text.includes('pameran')) return 'EXHIBITION';
+    return 'KONSER & MUSIK';
+  };
+
   const filteredEvents = events.filter((e) => {
     const matchSearch =
       e.title.toLowerCase().includes(search.toLowerCase()) ||
       e.location.toLowerCase().includes(search.toLowerCase());
-    if (selectedCategory === 'SEMUA') return matchSearch;
-    return matchSearch; // Sederhana
+    if (!matchSearch) return false;
+    if (selectedCategory === 'SEMUA') return true;
+    return getEventCategory(e) === selectedCategory;
   });
 
   return (

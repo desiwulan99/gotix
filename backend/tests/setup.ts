@@ -1,4 +1,6 @@
 import { prisma } from '../src/config/prisma';
+import { execSync } from 'child_process';
+import path from 'path';
 
 export async function cleanDatabase() {
   try {
@@ -15,5 +17,14 @@ export async function cleanDatabase() {
     await prisma.event.deleteMany({});
     await prisma.user.deleteMany({});
     await prisma.webhookEvent.deleteMany({});
+  }
+}
+
+export async function restoreSeedData() {
+  try {
+    const { seed } = require('../prisma/seed.js');
+    await seed();
+  } catch (err) {
+    console.error('[TEST TEARDOWN] Gagal me-restore seed data:', err);
   }
 }

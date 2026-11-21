@@ -41,5 +41,8 @@
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.6.3",
     "vitest": "^2.1.5"
+  },
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
   }
 }

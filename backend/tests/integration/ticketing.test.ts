@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../../src/app';
 import { prisma } from '../../src/config/prisma';
-import { cleanDatabase } from '../setup';
+import { cleanDatabase, restoreSeedData } from '../setup';
 import { expireOverdueOrders } from '../../src/workers/expiry.worker';
 
 const app = createApp();
@@ -21,6 +21,7 @@ describe('GOTIX Core Ticketing Integration Tests (Real PostgreSQL)', () => {
 
   afterAll(async () => {
     await cleanDatabase();
+    await restoreSeedData();
     await prisma.$disconnect();
   });
 

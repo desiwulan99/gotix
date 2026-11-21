@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { createApp } from '../../src/app';
 import { prisma } from '../../src/config/prisma';
-import { cleanDatabase } from '../setup';
+import { cleanDatabase, restoreSeedData } from '../setup';
 import jwt from 'jsonwebtoken';
 import { ENV } from '../../src/config/env';
 
@@ -168,5 +168,11 @@ describe('CONCURRENCY STRESS TEST — 200 Requests for 100 Quota', () => {
     expect(otherCount).toBe(0);
     expect(reservedCountFinal).toBe(100);
     expect(remainingFinal).toBe(0);
+  });
+
+  afterAll(async () => {
+    await cleanDatabase();
+    await restoreSeedData();
+    await prisma.$disconnect();
   });
 });

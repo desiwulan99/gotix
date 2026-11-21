@@ -1,0 +1,14 @@
+{
+  "testName": "Concurrency 200 requests against 100 quota",
+  "timestamp": "2026-11-21T07:21:27.692Z",
+  "durationMs": 981,
+  "totalRequests": 200,
+  "quotaInitial": 100,
+  "successCount": 100,
+  "soldOutCount": 100,
+  "otherCount": 0,
+  "reservedCountFinal": 100,
+  "remainingFinal": 0,
+  "oversellingDetected": false,
+  "negativeStockDetected": false
+}

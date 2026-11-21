@@ -29,7 +29,7 @@ export class AuthService {
         email: data.email,
         passwordHash,
         fullName: data.fullName,
-        role: data.role || Role.BUYER,
+        role: (data.role === 'ADMIN' ? Role.ADMIN : Role.BUYER),
       },
       select: {
         id: true,

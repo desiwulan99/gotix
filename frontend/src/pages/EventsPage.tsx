@@ -9,7 +9,19 @@ export const EventsPage: React.FC = () => {
   const [events, setEvents] = useState<Event[]>([]);
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<'ALL' | 'AVAILABLE' | 'SOLDOUT'>('ALL');
+  const [selectedCategory, setSelectedCategory] = useState<string>('SEMUA');
   const [isLoading, setIsLoading] = useState(true);
+
+  const categories = ['SEMUA', 'KONSER & MUSIK', 'TEATER & SENI', 'ORCHESTRA', 'EXHIBITION'];
+
+  const getEventCategory = (e: Event): string => {
+    const text = `${e.title} ${e.description}`.toLowerCase();
+    if (text.includes('orchestra') || text.includes('symphony') || text.includes('orkestra')) return 'ORCHESTRA';
+    if (text.includes('masquerade') || text.includes('teater') || text.includes('drama')) return 'TEATER & SENI';
+    if (text.includes('electronic') || text.includes('gathering') || text.includes('konser')) return 'KONSER & MUSIK';
+    if (text.includes('canvas') || text.includes('sculpture') || text.includes('exhibition') || text.includes('pameran')) return 'EXHIBITION';
+    return 'KONSER & MUSIK';
+  };
 
   useEffect(() => {
     const fetchEvents = async () => {
@@ -32,6 +44,10 @@ export const EventsPage: React.FC = () => {
       e.location.toLowerCase().includes(search.toLowerCase());
 
     if (!matchesSearch) return false;
+
+    if (selectedCategory !== 'SEMUA' && getEventCategory(e) !== selectedCategory) {
+      return false;
+    }
 
     const isSoldOut = e.soldOut || e.isSoldOut;
     if (filterStatus === 'AVAILABLE') return !isSoldOut;
@@ -107,6 +123,23 @@ export const EventsPage: React.FC = () => {
               Habis
             </button>
           </div>
+        </div>
+
+        {/* Kategori Pertunjukan */}
+        <div className="flex flex-wrap items-center gap-4 sm:gap-8 pt-4 border-t border-silver-mist/10">
+          {categories.map((cat) => (
+            <button
+              key={cat}
+              onClick={() => setSelectedCategory(cat)}
+              className={`font-cinzel text-xs tracking-[0.15em] uppercase py-1 transition-all ${
+                selectedCategory === cat
+                  ? 'text-dusk-rose underline underline-offset-8 decoration-dusk-rose'
+                  : 'text-silver-mist/60 hover:text-ivory'
+              }`}
+            >
+              {cat}
+            </button>
+          ))}
         </div>
       </div>
 
