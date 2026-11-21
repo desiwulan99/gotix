@@ -9,9 +9,10 @@ const router = Router();
 
 router.use(authenticate);
 
-// Customer & Admin
+// Buyer & Admin
 router.post('/', validate(createOrderSchema), OrderController.createOrder);
 router.get('/', OrderController.getUserOrders);
+router.get('/admin/orders', authorize([Role.ADMIN]), OrderController.getAllOrders);
 router.get('/admin/all', authorize([Role.ADMIN]), OrderController.getAllOrders);
 router.get('/:id', validate(orderIdParamSchema), OrderController.getOrderById);
 router.post('/:id/cancel', validate(orderIdParamSchema), OrderController.cancelOrder);

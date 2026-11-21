@@ -11,7 +11,7 @@ datasource db {
 }
 
 enum Role {
-  CUSTOMER
+  BUYER
   ADMIN
 }
 
@@ -52,7 +52,7 @@ model User {
   email        String    @unique
   passwordHash String
   fullName     String
-  role         Role      @default(CUSTOMER)
+  role         Role      @default(BUYER)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
@@ -67,7 +67,7 @@ model Event {
   title       String
   description String      @db.Text
   location    String
-  eventDate   DateTime
+  startsAt    DateTime
   imageUrl    String?     @db.Text
   status      EventStatus @default(PUBLISHED)
   createdAt   DateTime    @default(now())
@@ -77,7 +77,7 @@ model Event {
   orders      Order[]
 
   @@index([status])
-  @@index([eventDate])
+  @@index([startsAt])
 }
 
 model TicketType {
@@ -85,9 +85,8 @@ model TicketType {
   eventId       String
   name          String      // e.g. "Regular", "VIP"
   price         Decimal     @db.Decimal(12, 2)
-  totalQuota    Int         // Total kapasitas fisik tiket
-  reservedQuota Int         @default(0) // Kuota ditahan oleh order PENDING_PAYMENT
-  paidQuota     Int         @default(0) // Kuota lunas terbayar
+  quota         Int         // Total kapasitas fisik tiket
+  reservedCount Int         @default(0) // Kuota ditahan + terjual (sisa = quota - reservedCount)
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
@@ -105,6 +104,8 @@ model Order {
   status      OrderStatus @default(PENDING_PAYMENT)
   totalAmount Decimal     @db.Decimal(12, 2)
   expiresAt   DateTime    // Waktu habis masa penahanan tiket (15 menit)
+  paidAt      DateTime?
+  cancelledAt DateTime?
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
@@ -114,10 +115,9 @@ model Order {
   payment     Payment?
   tickets     Ticket[]
 
-  @@index([userId])
+  @@index([userId, status])
+  @@index([status, expiresAt])
   @@index([eventId])
-  @@index([status])
-  @@index([expiresAt])
 }
 
 model OrderItem {
@@ -129,6 +129,7 @@ model OrderItem {
 
   order        Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
   ticketType   TicketType @relation(fields: [ticketTypeId], references: [id])
+  tickets      Ticket[]
 
   @@index([orderId])
   @@index([ticketTypeId])
@@ -136,7 +137,7 @@ model OrderItem {
 
 model Payment {
   id            String        @id @default(uuid())
-  orderId       String        @unique // Satu order hanya memiliki satu payment
+  orderId       String        @unique // Satu order hanya memiliki satu payment sukses
   amount        Decimal       @db.Decimal(12, 2)
   status        PaymentStatus @default(PENDING)
   paymentMethod String        @default("SIMULATED_BANK_TRANSFER")
@@ -152,18 +153,22 @@ model Payment {
 
 model Ticket {
   id           String       @id @default(uuid())
-  ticketCode   String       @unique // Unique ticket code, contoh: "GTX-7K9A-3F21"
+  code         String       @unique // Unique ticket code acak kriptografis, e.g. "GTX-7K9A3F21B4C9"
   orderId      String
+  orderItemId  String
+  seq          Int          // Urutan 1..N dalam order item
   ticketTypeId String
   userId       String
   status       TicketStatus @default(VALID)
   issuedAt     DateTime     @default(now())
 
   order        Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderItem    OrderItem    @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
   ticketType   TicketType   @relation(fields: [ticketTypeId], references: [id])
   user         User         @relation(fields: [userId], references: [id])
 
-  @@index([ticketCode])
+  @@unique([orderItemId, seq])
+  @@index([code])
   @@index([userId])
   @@index([orderId])
 }

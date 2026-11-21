@@ -1,7 +1,7 @@
 import { Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { Role } from '@prisma/client';
-import { AuthRequest, AuthenticatedUser } from '../types';
+import { AuthRequest, AuthenticatedUser } from '../utils/response';
 import { UnauthorizedError, ForbiddenError } from '../utils/errors';
 import { ENV } from '../config/env';
 

@@ -1,5 +1,5 @@
 -- CreateEnum
-CREATE TYPE "Role" AS ENUM ('CUSTOMER', 'ADMIN');
+CREATE TYPE "Role" AS ENUM ('BUYER', 'ADMIN');
 
 -- CreateEnum
 CREATE TYPE "EventStatus" AS ENUM ('DRAFT', 'PUBLISHED', 'CANCELLED', 'COMPLETED');
@@ -22,7 +22,7 @@ CREATE TABLE "User" (
     "email" TEXT NOT NULL,
     "passwordHash" TEXT NOT NULL,
     "fullName" TEXT NOT NULL,
-    "role" "Role" NOT NULL DEFAULT 'CUSTOMER',
+    "role" "Role" NOT NULL DEFAULT 'BUYER',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -35,7 +35,7 @@ CREATE TABLE "Event" (
     "title" TEXT NOT NULL,
     "description" TEXT NOT NULL,
     "location" TEXT NOT NULL,
-    "eventDate" TIMESTAMP(3) NOT NULL,
+    "startsAt" TIMESTAMP(3) NOT NULL,
     "imageUrl" TEXT,
     "status" "EventStatus" NOT NULL DEFAULT 'PUBLISHED',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -50,9 +50,8 @@ CREATE TABLE "TicketType" (
     "eventId" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "price" DECIMAL(12,2) NOT NULL,
-    "totalQuota" INTEGER NOT NULL,
-    "reservedQuota" INTEGER NOT NULL DEFAULT 0,
-    "paidQuota" INTEGER NOT NULL DEFAULT 0,
+    "quota" INTEGER NOT NULL,
+    "reservedCount" INTEGER NOT NULL DEFAULT 0,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -67,6 +66,8 @@ CREATE TABLE "Order" (
     "status" "OrderStatus" NOT NULL DEFAULT 'PENDING_PAYMENT',
     "totalAmount" DECIMAL(12,2) NOT NULL,
     "expiresAt" TIMESTAMP(3) NOT NULL,
+    "paidAt" TIMESTAMP(3),
+    "cancelledAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -101,8 +102,10 @@ CREATE TABLE "Payment" (
 -- CreateTable
 CREATE TABLE "Ticket" (
     "id" TEXT NOT NULL,
-    "ticketCode" TEXT NOT NULL,
+    "code" TEXT NOT NULL,
     "orderId" TEXT NOT NULL,
+    "orderItemId" TEXT NOT NULL,
+    "seq" INTEGER NOT NULL,
     "ticketTypeId" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "status" "TicketStatus" NOT NULL DEFAULT 'VALID',
@@ -125,62 +128,38 @@ CREATE TABLE "WebhookEvent" (
 
 -- CreateIndex
 CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
-
--- CreateIndex
 CREATE INDEX "User_email_idx" ON "User"("email");
 
 -- CreateIndex
 CREATE INDEX "Event_status_idx" ON "Event"("status");
-
--- CreateIndex
-CREATE INDEX "Event_eventDate_idx" ON "Event"("eventDate");
+CREATE INDEX "Event_startsAt_idx" ON "Event"("startsAt");
 
 -- CreateIndex
 CREATE INDEX "TicketType_eventId_idx" ON "TicketType"("eventId");
 
 -- CreateIndex
-CREATE INDEX "Order_userId_idx" ON "Order"("userId");
-
--- CreateIndex
+CREATE INDEX "Order_userId_status_idx" ON "Order"("userId", "status");
+CREATE INDEX "Order_status_expiresAt_idx" ON "Order"("status", "expiresAt");
 CREATE INDEX "Order_eventId_idx" ON "Order"("eventId");
 
 -- CreateIndex
-CREATE INDEX "Order_status_idx" ON "Order"("status");
-
--- CreateIndex
-CREATE INDEX "Order_expiresAt_idx" ON "Order"("expiresAt");
-
--- CreateIndex
 CREATE INDEX "OrderItem_orderId_idx" ON "OrderItem"("orderId");
-
--- CreateIndex
 CREATE INDEX "OrderItem_ticketTypeId_idx" ON "OrderItem"("ticketTypeId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Payment_orderId_key" ON "Payment"("orderId");
-
--- CreateIndex
 CREATE INDEX "Payment_orderId_idx" ON "Payment"("orderId");
-
--- CreateIndex
 CREATE INDEX "Payment_status_idx" ON "Payment"("status");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "Ticket_ticketCode_key" ON "Ticket"("ticketCode");
-
--- CreateIndex
-CREATE INDEX "Ticket_ticketCode_idx" ON "Ticket"("ticketCode");
-
--- CreateIndex
+CREATE UNIQUE INDEX "Ticket_code_key" ON "Ticket"("code");
+CREATE UNIQUE INDEX "Ticket_orderItemId_seq_key" ON "Ticket"("orderItemId", "seq");
+CREATE INDEX "Ticket_code_idx" ON "Ticket"("code");
 CREATE INDEX "Ticket_userId_idx" ON "Ticket"("userId");
-
--- CreateIndex
 CREATE INDEX "Ticket_orderId_idx" ON "Ticket"("orderId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "WebhookEvent_eventId_key" ON "WebhookEvent"("eventId");
-
--- CreateIndex
 CREATE INDEX "WebhookEvent_eventId_idx" ON "WebhookEvent"("eventId");
 
 -- AddForeignKey
@@ -205,7 +184,13 @@ ALTER TABLE "Payment" ADD CONSTRAINT "Payment_orderId_fkey" FOREIGN KEY ("orderI
 ALTER TABLE "Ticket" ADD CONSTRAINT "Ticket_orderId_fkey" FOREIGN KEY ("orderId") REFERENCES "Order"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "Ticket" ADD CONSTRAINT "Ticket_orderItemId_fkey" FOREIGN KEY ("orderItemId") REFERENCES "OrderItem"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "Ticket" ADD CONSTRAINT "Ticket_ticketTypeId_fkey" FOREIGN KEY ("ticketTypeId") REFERENCES "TicketType"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Ticket" ADD CONSTRAINT "Ticket_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- CHECK Constraint: reservedCount harus antara 0 dan quota (sabuk pengaman database)
+ALTER TABLE "TicketType" ADD CONSTRAINT "check_ticket_type_reserved_count_quota" CHECK ("reservedCount" >= 0 AND "reservedCount" <= "quota");

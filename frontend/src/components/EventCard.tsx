@@ -1,79 +1,77 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Calendar, MapPin, Ticket } from 'lucide-react';
 import { Event } from '../types';
+import { EventPoster } from './EventPoster';
+import { formatRupiah } from '../lib/ticketRules';
 
 interface EventCardProps {
   event: Event;
 }
 
 export const EventCard: React.FC<EventCardProps> = ({ event }) => {
-  const minPrice =
-    event.ticketTypes.length > 0
-      ? Math.min(...event.ticketTypes.map((t) => t.price))
-      : 0;
+  // Hitung harga termurah dari tipe tiket
+  const prices = event.ticketTypes?.map((t) => Number(t.price)) || [];
+  const minPrice = prices.length > 0 ? Math.min(...prices) : 0;
 
-  const formattedDate = new Date(event.eventDate).toLocaleDateString('id-ID', {
+  // Tanggal format Indonesia
+  const eventDateObj = new Date(event.startsAt || event.eventDate || Date.now());
+  const dateFormatted = eventDateObj.toLocaleDateString('id-ID', {
     day: 'numeric',
-    month: 'long',
+    month: 'short',
     year: 'numeric',
   });
+
+  const isSoldOut = event.soldOut || event.isSoldOut;
 
   return (
     <Link
       to={`/events/${event.id}`}
-      className="group flex flex-col bg-white border border-soft-gray hover:border-dusty-purple/60 rounded-2xl overflow-hidden shadow-soft-card hover:shadow-soft-hover transition-all duration-300 relative"
+      className="group flex flex-col bg-charcoal border border-silver-mist/20 hover:border-dusk-rose/60 transition-all duration-300 relative text-left"
     >
-      {/* Sold Out Badge */}
-      {event.isSoldOut && (
-        <div className="absolute top-3.5 right-3.5 z-10 px-3 py-1 rounded-full bg-white/95 border border-red-200 text-red-600 text-[10px] font-bold tracking-widest uppercase backdrop-blur-sm shadow-sm">
-          SOLD OUT
-        </div>
-      )}
+      {/* Poster Tarot Rasio 2:3 */}
+      <div className="relative w-full">
+        <EventPoster id={event.id} title={event.title} />
 
-      {/* Poster Image with Subtle Zoom */}
-      <div className="h-52 w-full overflow-hidden bg-pearl relative">
-        <img
-          src={
-            event.imageUrl ||
-            'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?q=80&w=800&auto=format&fit=crop'
-          }
-          alt={event.title}
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-charcoal/20 via-transparent to-transparent"></div>
+        {/* Badge SOLD OUT jika kuota habis */}
+        {isSoldOut && (
+          <div className="absolute inset-0 bg-obsidian/80 backdrop-blur-[2px] flex items-center justify-center p-4 z-20">
+            <span className="font-cinzel text-xs tracking-[0.25em] uppercase text-dusk-rose border border-dusk-rose/60 px-3 py-1 bg-charcoal">
+              HABIS TERJUAL
+            </span>
+          </div>
+        )}
       </div>
 
-      {/* Event Details */}
-      <div className="p-5 flex flex-col flex-grow justify-between">
-        <div>
-          <h3 className="text-base font-bold font-cinzel text-charcoal group-hover:text-plum transition-colors line-clamp-1">
-            {event.title}
-          </h3>
-          <p className="text-xs text-muted-charcoal mt-2 line-clamp-2 leading-relaxed font-light">
-            {event.description}
-          </p>
+      {/* Konten Keterangan Event */}
+      <div className="p-4 flex flex-col flex-1 justify-between space-y-3 bg-charcoal">
+        {/* Tanggal & Lokasi */}
+        <div className="flex items-center justify-between text-[11px] font-inter text-silver-mist/70 tracking-wider">
+          <span>{dateFormatted}</span>
+          <span className="truncate max-w-[120px] text-right">{event.location}</span>
         </div>
 
-        <div className="mt-5 pt-4 border-t border-soft-gray/60 flex flex-col gap-2">
-          <div className="flex items-center gap-2 text-xs text-secondary">
-            <Calendar className="w-3.5 h-3.5 text-royal-mauve shrink-0" />
-            <span>{formattedDate}</span>
-          </div>
-          <div className="flex items-center gap-2 text-xs text-secondary">
-            <MapPin className="w-3.5 h-3.5 text-royal-mauve shrink-0" />
-            <span className="truncate">{event.location}</span>
-          </div>
+        {/* Judul Event: TAMPIL LENGKAP TANPA TRUNCATION "..." */}
+        <h3 className="font-cinzel text-sm leading-snug tracking-[0.03em] text-ivory group-hover:text-dusk-rose transition-colors duration-200">
+          {event.title}
+        </h3>
 
-          <div className="mt-3 flex items-center justify-between pt-2 border-t border-soft-gray/40">
-            <span className="text-[11px] uppercase tracking-wider text-secondary flex items-center gap-1 font-medium">
-              <Ticket className="w-3.5 h-3.5 text-dusty-purple" />
+        {/* Garis pemisah tipis */}
+        <div className="h-[1px] w-full bg-silver-mist/10" />
+
+        {/* Harga & Aksi */}
+        <div className="flex items-center justify-between pt-1">
+          <div>
+            <span className="block text-[10px] uppercase font-inter text-silver-mist/60 tracking-wider">
               Mulai dari
             </span>
-            <span className="text-sm font-bold text-charcoal font-cinzel">
-              Rp {minPrice.toLocaleString('id-ID')}
+            <span className="font-inter font-semibold text-sm text-dusk-rose">
+              {formatRupiah(minPrice)}
             </span>
           </div>
+
+          <span className="font-cinzel text-[11px] tracking-[0.15em] uppercase text-silver-mist/70 group-hover:text-ivory group-hover:underline underline-offset-4 transition-all">
+            Lihat Tiket →
+          </span>
         </div>
       </div>
     </Link>

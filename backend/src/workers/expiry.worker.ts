@@ -5,20 +5,20 @@ import { ENV } from '../config/env';
 /**
  * Worker untuk memproses seluruh order yang kedaluwarsa (> 15 menit).
  * Bekerja secara otomatis dan idempoten:
- * 1. Mengubah status order PENDING_PAYMENT yang melewati batas expiresAt menjadi EXPIRED.
- * 2. Mengembalikan reservedQuota pada tipe tiket terkait secara atomik.
- * 3. Tidak akan memicu pengembalian kuota dobel jika dijalankan berulang kali.
+ * 1. Mengubah status order PENDING_PAYMENT yang melewati batas expiresAt menjadi EXPIRED secara atomik.
+ * 2. Mengembalikan reservedCount pada TicketType HANYA jika transisi status berhasil mengenai 1 baris.
+ * 3. Menerima parameter DI `now` untuk pengujian instan tanpa menunggu 15 menit.
  */
-export async function runExpiryCheck(): Promise<number> {
+export async function expireOverdueOrders(now: Date = new Date()): Promise<number> {
   let expiredCount = 0;
 
   try {
-    // Ambil semua order yang kedaluwarsa dan masih berstatus PENDING_PAYMENT
-    const expiredOrders = await prisma.order.findMany({
+    // Cari semua order PENDING_PAYMENT yang sudah melewati waktu expiresAt
+    const overdueOrders = await prisma.order.findMany({
       where: {
         status: OrderStatus.PENDING_PAYMENT,
         expiresAt: {
-          lt: new Date(),
+          lte: now,
         },
       },
       select: {
@@ -26,52 +26,46 @@ export async function runExpiryCheck(): Promise<number> {
       },
     });
 
-    for (const expOrder of expiredOrders) {
-      // Jalankan transaksi per order agar jika 1 gagal tidak membatalkan yang lain
+    for (const order of overdueOrders) {
       await prisma.$transaction(async (tx) => {
-        // Kunci baris order untuk mencegah konflik dengan proses pembayaran yang bersamaan
-        const lockedOrders: Array<{ id: string; status: OrderStatus }> = await tx.$queryRaw`
-          SELECT id, status
-          FROM "Order"
-          WHERE id = ${expOrder.id} AND status = 'PENDING_PAYMENT'
-          FOR UPDATE
+        // Transisi atomik: Hanya ubah status jika masih PENDING_PAYMENT
+        const updateResult = await tx.$executeRaw`
+          UPDATE "Order"
+          SET status = 'EXPIRED'::"OrderStatus",
+              "updatedAt" = NOW()
+          WHERE id = ${order.id} AND status = 'PENDING_PAYMENT'::"OrderStatus"
         `;
 
-        // Jika order sudah dibayar atau dibatalkan oleh transaksi lain, lewati
-        if (lockedOrders.length === 0) {
+        // Jika row affected == 0, berarti order telah dibayar atau dibatalkan oleh transaksi lain
+        if (updateResult === 0) {
           return;
         }
 
+        // Ambil item pesanan untuk memulihkan reservedCount
         const items = await tx.orderItem.findMany({
-          where: { orderId: expOrder.id },
+          where: { orderId: order.id },
         });
 
-        // Pulihkan reservedQuota
+        // Pulihkan reservedCount di database
         for (const item of items) {
           await tx.$executeRaw`
             UPDATE "TicketType"
-            SET "reservedQuota" = GREATEST(0, "reservedQuota" - ${item.quantity}),
+            SET "reservedCount" = GREATEST(0, "reservedCount" - ${item.quantity}),
                 "updatedAt" = NOW()
             WHERE id = ${item.ticketTypeId}
           `;
         }
-
-        // Ubah status order menjadi EXPIRED
-        await tx.order.update({
-          where: { id: expOrder.id },
-          data: { status: OrderStatus.EXPIRED },
-        });
 
         expiredCount++;
       });
     }
 
     if (expiredCount > 0) {
-      console.log(`[EXPIRY WORKER] Berhasil memproses ${expiredCount} pesanan kedaluwarsa.`);
+      console.log(`[EXPIRY WORKER] Berhasil memproses ${expiredCount} pesanan kedaluwarsa pada ${now.toISOString()}`);
     }
   } catch (error: any) {
     if (error?.code === 'P1001' || error?.message?.includes("Can't reach database")) {
-      console.warn('[EXPIRY WORKER] Menunggu koneksi database PostgreSQL di port 5432...');
+      console.warn('[EXPIRY WORKER] Menunggu koneksi database PostgreSQL...');
     } else {
       console.error('[EXPIRY WORKER ERROR]:', error?.message || error);
     }
@@ -80,6 +74,9 @@ export async function runExpiryCheck(): Promise<number> {
   return expiredCount;
 }
 
+// Alias untuk kompatibilitas
+export const runExpiryCheck = expireOverdueOrders;
+
 let workerIntervalId: NodeJS.Timeout | null = null;
 
 export function startExpiryWorker(): void {
@@ -87,20 +84,20 @@ export function startExpiryWorker(): void {
     return;
   }
 
-  console.log(`[EXPIRY WORKER] Menjalankan scheduler (interval: ${ENV.EXPIRY_WORKER_INTERVAL_MS}ms)`);
-  
-  // Jalankan pemeriksaan sekali saat startup aplikasi untuk menangani pesanan kedaluwarsa selama server offline
-  runExpiryCheck();
+  console.log(`[EXPIRY WORKER] Menjalankan scheduler (interval: ${ENV.EXPIRY_INTERVAL_MS}ms)`);
+
+  // Jalankan pemeriksaan segera saat startup
+  expireOverdueOrders().catch((err) => console.error('[EXPIRY WORKER STARTUP ERROR]:', err));
 
   workerIntervalId = setInterval(() => {
-    runExpiryCheck();
-  }, ENV.EXPIRY_WORKER_INTERVAL_MS);
+    expireOverdueOrders().catch((err) => console.error('[EXPIRY WORKER TICK ERROR]:', err));
+  }, ENV.EXPIRY_INTERVAL_MS);
 }
 
 export function stopExpiryWorker(): void {
   if (workerIntervalId) {
     clearInterval(workerIntervalId);
     workerIntervalId = null;
-    console.log('[EXPIRY WORKER] Worker dihentikan.');
+    console.log('[EXPIRY WORKER] Scheduler dihentikan dengan aman.');
   }
 }

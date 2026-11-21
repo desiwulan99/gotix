@@ -1,13 +1,17 @@
 import React, { useEffect, useState } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
 import api from '../services/api';
 import { Ticket, Order } from '../types';
-import { Calendar, MapPin, QrCode } from 'lucide-react';
+import { StatusBadge } from '../components/ui/StatusBadge';
+import { EmptyState } from '../components/ui/EmptyState';
+import { formatRupiah } from '../lib/ticketRules';
 
 export const MyTicketsPage: React.FC = () => {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [activeTab, setActiveTab] = useState<'TICKETS' | 'ORDERS'>('TICKETS');
   const [isLoading, setIsLoading] = useState(true);
+  const [copiedCode, setCopiedCode] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -16,8 +20,8 @@ export const MyTicketsPage: React.FC = () => {
           api.get('/tickets'),
           api.get('/orders'),
         ]);
-        setTickets(ticketRes.data.data);
-        setOrders(orderRes.data.data);
+        setTickets(Array.isArray(ticketRes.data.data) ? ticketRes.data.data : []);
+        setOrders(Array.isArray(orderRes.data.data) ? orderRes.data.data : []);
       } catch (err) {
         console.error('Error fetching tickets or orders:', err);
       } finally {
@@ -28,36 +32,48 @@ export const MyTicketsPage: React.FC = () => {
     fetchData();
   }, []);
 
+  const handleCopyCode = (code: string) => {
+    navigator.clipboard.writeText(code);
+    setCopiedCode(code);
+    setTimeout(() => {
+      setCopiedCode(null);
+    }, 2000);
+  };
+
   return (
-    <div className="max-w-6xl mx-auto py-12 px-6 min-h-screen bg-ivory text-charcoal">
-      <div className="border-b border-soft-gray pb-6 mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="max-w-6xl mx-auto py-12 px-4 sm:px-6 min-h-screen bg-obsidian text-ivory">
+      {/* Header Halaman */}
+      <div className="border-b border-silver-mist/15 pb-6 mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-6 text-left">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-black font-cinzel text-charcoal tracking-wide">
+          <span className="text-[10px] uppercase tracking-[0.25em] text-dusk-rose font-cinzel">
+            ✦ DOKUMEN DIGITAL ✦
+          </span>
+          <h1 className="text-2xl sm:text-3xl font-normal font-cinzel text-ivory tracking-[0.05em] mt-1">
             TIKET & RIWAYAT PESANAN
           </h1>
-          <p className="text-xs text-muted-charcoal mt-1 font-light">
+          <p className="text-xs text-silver-mist/70 mt-1 font-inter">
             Akses digital pass resmi Anda dengan kode tiket unik dan riwayat transaksi.
           </p>
         </div>
 
-        {/* Tab Controls */}
-        <div className="flex items-center gap-1.5 bg-pearl p-1.5 rounded-2xl border border-soft-gray shadow-xs">
+        {/* Tab Switcher Gaya Soul Cards */}
+        <div className="flex items-center space-x-8">
           <button
             onClick={() => setActiveTab('TICKETS')}
-            className={`px-4 py-2 rounded-xl text-xs font-medium transition-all ${
+            className={`font-cinzel text-xs tracking-[0.2em] uppercase py-1 transition-all ${
               activeTab === 'TICKETS'
-                ? 'bg-white text-plum font-semibold shadow-sm'
-                : 'text-muted-charcoal hover:text-charcoal'
+                ? 'text-dusk-rose underline underline-offset-8 decoration-dusk-rose'
+                : 'text-silver-mist/60 hover:text-ivory'
             }`}
           >
-            Tiket Aktif ({tickets.length})
+            Tiket Saya ({tickets.length})
           </button>
           <button
             onClick={() => setActiveTab('ORDERS')}
-            className={`px-4 py-2 rounded-xl text-xs font-medium transition-all ${
+            className={`font-cinzel text-xs tracking-[0.2em] uppercase py-1 transition-all ${
               activeTab === 'ORDERS'
-                ? 'bg-white text-plum font-semibold shadow-sm'
-                : 'text-muted-charcoal hover:text-charcoal'
+                ? 'text-dusk-rose underline underline-offset-8 decoration-dusk-rose'
+                : 'text-silver-mist/60 hover:text-ivory'
             }`}
           >
             Riwayat Pesanan ({orders.length})
@@ -66,75 +82,75 @@ export const MyTicketsPage: React.FC = () => {
       </div>
 
       {isLoading ? (
-        <div className="text-center py-20 text-secondary text-xs">Memuat data...</div>
+        <div className="text-center py-20 text-silver-mist/60 text-xs font-cinzel tracking-widest uppercase">
+          Memuat data tiket & riwayat...
+        </div>
       ) : activeTab === 'TICKETS' ? (
-        /* Tab Tiket Aktif */
+        /* Tab Tiket Saya */
         tickets.length === 0 ? (
-          <div className="text-center py-20 bg-white rounded-2xl border border-soft-gray shadow-soft-card">
-            <p className="text-muted-charcoal text-xs">Belum ada tiket yang diterbitkan.</p>
-          </div>
+          <EmptyState
+            title="Belum Ada Tiket yang Diterbitkan"
+            description="Anda belum memiliki tiket aktif. Pilih event dan selesaikan pembayaran untuk mendapatkan pass resmi."
+            actionText="JELAJAHI EVENT SEKARANG"
+            onAction={() => (window.location.href = '/events')}
+          />
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-left">
             {tickets.map((t) => {
-              const isVIP = t.ticketType?.name.toUpperCase().includes('VIP');
+              const code = t.code || t.ticketCode || 'GTX-UNKNOWN';
               return (
                 <div
                   key={t.id}
-                  className="bg-white border border-soft-gray hover:border-dusty-purple/60 rounded-3xl overflow-hidden shadow-soft-card hover:shadow-soft-hover transition-all duration-300 flex flex-col justify-between"
+                  className="bg-charcoal border border-silver-mist/20 p-6 flex flex-col justify-between space-y-6 relative overflow-hidden"
                 >
-                  <div className="p-6">
-                    <div className="flex justify-between items-start gap-4">
+                  {/* Ornamen ganda sudut */}
+                  <div className="absolute top-2 right-2 text-[8px] text-dusk-rose select-none">✦</div>
+
+                  <div>
+                    <div className="flex items-start justify-between gap-4 mb-3">
                       <div>
-                        <span
-                          className={`text-[10px] uppercase font-bold tracking-widest px-2.5 py-0.5 rounded-full border ${
-                            isVIP
-                              ? 'bg-soft-lavender text-plum border-dusty-purple/60'
-                              : 'bg-pearl text-muted-charcoal border-soft-gray'
-                          }`}
-                        >
-                          {t.ticketType?.name}
+                        <span className="text-[10px] uppercase font-cinzel tracking-[0.2em] text-dusk-rose">
+                          {t.ticketType?.name || 'REGULAR'} PASS
                         </span>
-                        <h3 className="text-base font-bold font-cinzel text-charcoal mt-2.5">
-                          {t.order?.event?.title}
+                        <h3 className="font-cinzel text-base text-ivory tracking-wide mt-1">
+                          {t.order?.event?.title || 'Event GOTIX'}
                         </h3>
                       </div>
-                      <span className="text-[10px] uppercase font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                        {t.status}
-                      </span>
+                      <StatusBadge status={t.status} />
                     </div>
 
-                    <div className="mt-4 space-y-1.5 text-xs text-muted-charcoal font-light">
-                      <div className="flex items-center gap-2">
-                        <Calendar className="w-3.5 h-3.5 text-royal-mauve" />
-                        <span>
-                          {t.order?.event?.eventDate &&
-                            new Date(t.order.event.eventDate).toLocaleDateString('id-ID', {
-                              weekday: 'short',
-                              day: 'numeric',
-                              month: 'long',
-                              year: 'numeric',
-                            })}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <MapPin className="w-3.5 h-3.5 text-royal-mauve" />
-                        <span>{t.order?.event?.location}</span>
-                      </div>
-                    </div>
+                    <p className="text-xs text-silver-mist/70 font-inter">
+                      {t.order?.event?.location}
+                    </p>
                   </div>
 
-                  {/* Kode Tiket Unik & QR Bar */}
-                  <div className="bg-pearl/50 border-t border-dashed border-soft-gray px-6 py-4 flex items-center justify-between">
-                    <div>
-                      <span className="text-[10px] uppercase tracking-wider text-secondary font-semibold block">
-                        KODE TIKET UNIK
-                      </span>
-                      <span className="text-sm font-mono font-bold tracking-widest text-charcoal">
-                        {t.ticketCode}
-                      </span>
+                  {/* Bagian QR Code & Kode Tiket Unik */}
+                  <div className="pt-4 border-t border-silver-mist/15 flex flex-col sm:flex-row items-center justify-between gap-6">
+                    {/* QR Code SVG Offline */}
+                    <div className="bg-obsidian p-3 border border-silver-mist/20 shrink-0">
+                      <QRCodeSVG
+                        value={code}
+                        size={100}
+                        bgColor="#0D0B10"
+                        fgColor="#F2EFF4"
+                        level="M"
+                      />
                     </div>
-                    <div className="p-2 rounded-xl bg-white border border-soft-gray shadow-xs">
-                      <QrCode className="w-6 h-6 text-royal-mauve" />
+
+                    <div className="flex flex-col items-center sm:items-end space-y-2 w-full">
+                      <span className="text-[10px] font-cinzel uppercase tracking-wider text-silver-mist/50">
+                        Kode Tiket Unik
+                      </span>
+                      <span className="font-mono font-bold text-sm tracking-widest text-dusk-rose bg-obsidian px-3 py-1.5 border border-silver-mist/20">
+                        {code}
+                      </span>
+
+                      <button
+                        onClick={() => handleCopyCode(code)}
+                        className="font-cinzel text-[11px] tracking-[0.15em] uppercase text-silver-mist hover:text-ivory underline underline-offset-4 transition-colors"
+                      >
+                        {copiedCode === code ? '✓ Tersalin!' : 'Salin Kode Tiket'}
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -145,43 +161,53 @@ export const MyTicketsPage: React.FC = () => {
       ) : (
         /* Tab Riwayat Pesanan */
         orders.length === 0 ? (
-          <div className="text-center py-20 bg-white rounded-2xl border border-soft-gray shadow-soft-card">
-            <p className="text-muted-charcoal text-xs">Belum ada riwayat pesanan.</p>
-          </div>
+          <EmptyState
+            title="Belum Ada Riwayat Pesanan"
+            description="Riwayat pesanan tiket Anda akan tercatat secara otomatis di sini."
+            actionText="PESAN TIKET SEKARANG"
+            onAction={() => (window.location.href = '/events')}
+          />
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-4 text-left">
             {orders.map((o) => (
               <div
                 key={o.id}
-                className="bg-white border border-soft-gray rounded-2xl p-5 shadow-soft-card flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                className="bg-charcoal border border-silver-mist/20 p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-6"
               >
-                <div>
-                  <div className="flex items-center gap-3">
-                    <h4 className="text-sm font-bold font-cinzel text-charcoal">
-                      {o.event?.title}
-                    </h4>
-                    <span
-                      className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase ${
-                        o.status === 'PAID'
-                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          : o.status === 'PENDING_PAYMENT'
-                          ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                          : 'bg-red-50 text-red-700 border border-red-200'
-                      }`}
-                    >
-                      {o.status}
+                <div className="space-y-1">
+                  <div className="flex items-center space-x-3">
+                    <span className="font-mono text-xs text-silver-mist/60">
+                      #{o.id.substring(0, 8)}
                     </span>
+                    <StatusBadge status={o.status} />
                   </div>
-                  <p className="text-xs text-secondary mt-1 font-light">
-                    Dipesan pada {new Date(o.createdAt).toLocaleString('id-ID')}
+                  <h4 className="font-cinzel text-base text-ivory tracking-wide pt-1">
+                    {o.event?.title || 'Event GOTIX'}
+                  </h4>
+                  <p className="text-xs text-silver-mist/70 font-inter">
+                    {new Date(o.createdAt).toLocaleDateString('id-ID', {
+                      day: 'numeric',
+                      month: 'long',
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
                   </p>
                 </div>
 
-                <div className="text-right flex sm:flex-col items-center sm:items-end justify-between">
-                  <span className="text-xs text-secondary font-light">Total Pembayaran</span>
-                  <span className="text-sm font-bold font-cinzel text-charcoal">
-                    Rp {Number(o.totalAmount).toLocaleString('id-ID')}
+                <div className="flex flex-col sm:items-end justify-between space-y-2">
+                  <span className="font-inter font-bold text-lg text-dusk-rose">
+                    {formatRupiah(Number(o.totalAmount))}
                   </span>
+
+                  {o.status === 'PENDING_PAYMENT' && (
+                    <a
+                      href={`/checkout/${o.id}`}
+                      className="font-cinzel text-xs tracking-[0.15em] uppercase text-dusk-rose hover:text-ivory underline underline-offset-4"
+                    >
+                      Lanjutkan Pembayaran →
+                    </a>
+                  )}
                 </div>
               </div>
             ))}

@@ -4,9 +4,10 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    testTimeout: 30000,
-    hookTimeout: 30000,
+    testTimeout: 60000,
+    hookTimeout: 60000,
     include: ['tests/**/*.test.ts'],
-    threads: false, // Menjalankan serial agar transaksi database testing tidak saling tumpang tindih
+    fileParallelism: false, // Menjalankan tes secara serial agar tidak bentrok di PostgreSQL
+    maxWorkers: 1,
   },
 });

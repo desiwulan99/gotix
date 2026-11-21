@@ -1,110 +1,183 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Ticket, LogOut, ShieldCheck, User as UserIcon, Compass } from 'lucide-react';
 
 export const Navbar: React.FC = () => {
-  const { user, logout } = useAuth();
+  const { user, isAuthenticated, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const handleLogout = () => {
     logout();
-    navigate('/');
+    navigate('/masuk');
   };
 
   const isActive = (path: string) => location.pathname === path;
 
   return (
-    <nav className="sticky top-0 z-50 bg-ivory/85 backdrop-blur-md border-b border-soft-gray/80 px-6 py-4 transition-all duration-300">
-      <div className="max-w-6xl mx-auto flex items-center justify-between">
-        {/* Logo GOTIX */}
-        <Link to="/" className="flex items-center gap-3 group">
-          <span className="text-2xl font-black font-cinzel tracking-widest text-charcoal group-hover:text-plum transition-colors">
-            GOTIX
+    <header className="sticky top-0 z-50 bg-obsidian/95 backdrop-blur-sm border-b border-silver-mist/15">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+        {/* Logo Utama: Blackletter UnifrakturCook */}
+        <Link to="/" className="flex items-center space-x-2 text-left group">
+          <span className="font-unifraktur text-2xl tracking-wider text-ivory group-hover:text-dusk-rose transition-colors">
+            Gotix
           </span>
-          <span className="hidden sm:inline-block text-[10px] uppercase tracking-widest text-secondary border-l border-soft-gray pl-3 font-medium">
-            Soft Gothic Luxury
+          <span className="text-[10px] uppercase font-cinzel tracking-[0.2em] text-silver-mist/60 hidden sm:inline">
+            · Ticketing
           </span>
         </Link>
 
-        {/* Navigation Links */}
-        <div className="flex items-center gap-7">
+        {/* Navigasi Desktop */}
+        <nav className="hidden md:flex items-center space-x-8">
           <Link
             to="/events"
-            className={`text-xs uppercase tracking-wider font-medium transition-colors ${
+            className={`font-cinzel text-xs tracking-[0.18em] uppercase transition-colors ${
               isActive('/events')
-                ? 'text-plum font-semibold'
-                : 'text-muted-charcoal hover:text-charcoal'
+                ? 'text-dusk-rose underline underline-offset-8 decoration-dusk-rose'
+                : 'text-silver-mist/80 hover:text-ivory'
             }`}
           >
-            Katalog Event
+            Events
           </Link>
 
-          {user ? (
-            <div className="flex items-center gap-4">
-              <Link
-                to="/my-tickets"
-                className={`flex items-center gap-1.5 text-xs uppercase tracking-wider font-medium transition-colors ${
-                  isActive('/my-tickets')
-                    ? 'text-plum font-semibold'
-                    : 'text-muted-charcoal hover:text-charcoal'
-                }`}
+          {isAuthenticated && (
+            <Link
+              to="/tiket-saya"
+              className={`font-cinzel text-xs tracking-[0.18em] uppercase transition-colors ${
+                isActive('/tiket-saya')
+                  ? 'text-dusk-rose underline underline-offset-8 decoration-dusk-rose'
+                  : 'text-silver-mist/80 hover:text-ivory'
+              }`}
+            >
+              Tiket Saya
+            </Link>
+          )}
+
+          {user?.role === 'ADMIN' && (
+            <Link
+              to="/admin"
+              className={`font-cinzel text-xs tracking-[0.18em] uppercase transition-colors ${
+                isActive('/admin')
+                  ? 'text-dusk-rose underline underline-offset-8 decoration-dusk-rose'
+                  : 'text-silver-mist/80 hover:text-ivory'
+              }`}
+            >
+              Admin Dashboard
+            </Link>
+          )}
+        </nav>
+
+        {/* User Auth Section */}
+        <div className="hidden md:flex items-center space-x-6">
+          {isAuthenticated ? (
+            <div className="flex items-center space-x-4">
+              <span className="text-xs font-inter text-silver-mist/80">
+                {user?.fullName?.split(' ')[0]}
+              </span>
+              <button
+                onClick={handleLogout}
+                className="font-cinzel text-xs tracking-[0.15em] uppercase text-silver-mist/60 hover:text-dusk-rose transition-colors"
               >
-                <Ticket className="w-3.5 h-3.5 text-royal-mauve" />
-                <span>Tiket Saya</span>
-              </Link>
-
-              {user.role === 'ADMIN' && (
-                <Link
-                  to="/admin"
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-soft-lavender border border-dusty-purple/40 text-xs font-semibold text-plum hover:bg-soft-lavender/80 transition-all"
-                >
-                  <ShieldCheck className="w-3.5 h-3.5 text-plum" />
-                  <span>Admin</span>
-                </Link>
-              )}
-
-              <div className="flex items-center gap-2 pl-3 border-l border-soft-gray">
-                <span className="text-xs text-muted-charcoal hidden md:inline-block font-medium">
-                  {user.fullName}
-                </span>
-                <button
-                  onClick={handleLogout}
-                  title="Logout"
-                  className="p-1.5 rounded-full hover:bg-soft-lavender text-secondary hover:text-red-500 transition-colors"
-                >
-                  <LogOut className="w-4 h-4" />
-                </button>
-              </div>
+                Keluar
+              </button>
             </div>
           ) : (
-            <div className="flex items-center gap-3">
+            <div className="flex items-center space-x-4">
               <Link
-                to="/login"
-                className="flex items-center gap-1 text-xs uppercase tracking-wider font-medium text-muted-charcoal hover:text-charcoal px-3 py-1.5 rounded-lg hover:bg-soft-lavender/50 transition-colors"
+                to="/masuk"
+                className="font-cinzel text-xs tracking-[0.15em] uppercase text-silver-mist/80 hover:text-ivory transition-colors"
               >
-                <UserIcon className="w-3.5 h-3.5 text-royal-mauve" />
-                <span>Masuk</span>
+                Masuk
               </Link>
               <Link
-                to="/register"
-                className="text-xs uppercase tracking-wider font-semibold px-4 py-2 rounded-xl bg-royal-mauve hover:bg-plum text-white transition-all shadow-sm hover:shadow"
+                to="/daftar"
+                className="font-cinzel text-xs tracking-[0.15em] uppercase px-3 py-1.5 border border-silver-mist/30 text-ivory hover:border-dusk-rose hover:text-dusk-rose transition-colors"
               >
                 Daftar
               </Link>
             </div>
           )}
+        </div>
 
-          <Link
-            to="/events"
-            className="hidden lg:flex items-center gap-1.5 text-xs font-medium px-4 py-2 rounded-xl bg-white border border-soft-gray hover:border-dusty-purple text-charcoal hover:text-plum shadow-sm transition-all"
+        {/* Mobile Hamburger Toggle */}
+        <div className="flex md:hidden">
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="text-silver-mist p-2 focus:outline-none"
+            aria-label="Toggle menu"
           >
-            <Compass className="w-3.5 h-3.5 text-royal-mauve" />
-            <span>Jelajahi Sekarang</span>
-          </Link>
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              {mobileMenuOpen ? (
+                <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth="1.5" d="M6 18L18 6M6 6l12 12" />
+              ) : (
+                <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth="1.5" d="M4 6h16M4 12h16M4 18h16" />
+              )}
+            </svg>
+          </button>
         </div>
       </div>
-    </nav>
+
+      {/* Mobile Drawer Menu */}
+      {mobileMenuOpen && (
+        <div className="md:hidden border-t border-silver-mist/15 bg-obsidian px-6 py-6 space-y-4">
+          <Link
+            to="/events"
+            onClick={() => setMobileMenuOpen(false)}
+            className="block font-cinzel text-xs tracking-[0.2em] uppercase text-silver-mist hover:text-dusk-rose py-1"
+          >
+            Events
+          </Link>
+          {isAuthenticated && (
+            <Link
+              to="/tiket-saya"
+              onClick={() => setMobileMenuOpen(false)}
+              className="block font-cinzel text-xs tracking-[0.2em] uppercase text-silver-mist hover:text-dusk-rose py-1"
+            >
+              Tiket Saya
+            </Link>
+          )}
+          {user?.role === 'ADMIN' && (
+            <Link
+              to="/admin"
+              onClick={() => setMobileMenuOpen(false)}
+              className="block font-cinzel text-xs tracking-[0.2em] uppercase text-silver-mist hover:text-dusk-rose py-1"
+            >
+              Admin Dashboard
+            </Link>
+          )}
+          <div className="pt-4 border-t border-silver-mist/15 flex flex-col space-y-3">
+            {isAuthenticated ? (
+              <button
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  handleLogout();
+                }}
+                className="text-left font-cinzel text-xs tracking-[0.2em] uppercase text-dusk-rose"
+              >
+                Keluar ({user?.fullName})
+              </button>
+            ) : (
+              <>
+                <Link
+                  to="/masuk"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="font-cinzel text-xs tracking-[0.2em] uppercase text-silver-mist hover:text-ivory"
+                >
+                  Masuk
+                </Link>
+                <Link
+                  to="/daftar"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="font-cinzel text-xs tracking-[0.2em] uppercase text-dusk-rose"
+                >
+                  Daftar Akun Baru
+                </Link>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </header>
   );
 };

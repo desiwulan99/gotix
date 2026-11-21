@@ -1,10 +1,10 @@
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { Role } from '@prisma/client';
 import { prisma } from '../config/prisma';
 import { ENV } from '../config/env';
 import { BadRequestError, UnauthorizedError } from '../utils/errors';
-import { AuthenticatedUser } from '../types';
+import { AuthenticatedUser } from '../utils/response';
 
 export class AuthService {
   static async register(data: {
@@ -18,7 +18,7 @@ export class AuthService {
     });
 
     if (existingUser) {
-      throw new BadRequestError('Email sudah terdaftar');
+      throw new BadRequestError('Email sudah terdaftar', 'EMAIL_ALREADY_EXISTS');
     }
 
     const saltRounds = 10;
@@ -29,7 +29,7 @@ export class AuthService {
         email: data.email,
         passwordHash,
         fullName: data.fullName,
-        role: data.role || Role.CUSTOMER,
+        role: data.role || Role.BUYER,
       },
       select: {
         id: true,

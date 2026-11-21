@@ -16,19 +16,25 @@ export const errorHandler = (
       field: e.path.join('.'),
       message: e.message,
     }));
-    return sendError(res, 'Validasi input gagal', 400, formattedErrors);
+    return sendError(res, 'Validasi input gagal', 400, 'VALIDATION_ERROR', formattedErrors);
   }
 
-  // 2. Error operasional buatan aplikasi kita (AppError)
+  // 2. Error operasional AppError
   if (err instanceof AppError) {
-    return sendError(res, err.message, err.statusCode);
+    return sendError(res, err.message, err.statusCode, err.code, err.details);
   }
 
   // 3. Error tak terduga (Internal Server Error)
   console.error('[UNHANDLED ERROR]:', err);
-  const message = ENV.NODE_ENV === 'production' 
-    ? 'Terjadi kesalahan internal pada server' 
+  const message = ENV.NODE_ENV === 'production'
+    ? 'Terjadi kesalahan internal pada server'
     : err.message || 'Internal Server Error';
 
-  return sendError(res, message, 500, ENV.NODE_ENV === 'production' ? undefined : err.stack);
+  return sendError(
+    res,
+    message,
+    500,
+    'INTERNAL_SERVER_ERROR',
+    ENV.NODE_ENV === 'production' ? undefined : err.stack
+  );
 };

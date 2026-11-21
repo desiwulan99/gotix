@@ -5,6 +5,7 @@ import { User } from '../types';
 interface AuthContextType {
   user: User | null;
   token: string | null;
+  isAuthenticated: boolean;
   isLoading: boolean;
   login: (token: string, user: User) => void;
   logout: () => void;
@@ -52,7 +53,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, login, logout }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        token,
+        isAuthenticated: !!user && !!token,
+        isLoading,
+        login,
+        logout,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

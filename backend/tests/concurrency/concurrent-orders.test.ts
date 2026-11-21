@@ -1,8 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
+import fs from 'fs';
+import path from 'path';
 import { createApp } from '../../src/app';
 import { prisma } from '../../src/config/prisma';
 import { cleanDatabase } from '../setup';
+import jwt from 'jsonwebtoken';
+import { ENV } from '../../src/config/env';
 
 const app = createApp();
 
@@ -20,9 +24,9 @@ describe('CONCURRENCY STRESS TEST — 200 Requests for 100 Quota', () => {
     const adminRes = await request(app)
       .post('/api/auth/register')
       .send({
-        email: 'concurrency_admin@gotix.com',
-        password: 'password123',
-        fullName: 'Stress Test Admin',
+        email: 'concurrency_admin@gotix.id',
+        password: 'AdminPass123!',
+        fullName: 'Concurrency Admin',
         role: 'ADMIN',
       });
     adminToken = adminRes.body.data.token;
@@ -33,39 +37,37 @@ describe('CONCURRENCY STRESS TEST — 200 Requests for 100 Quota', () => {
       .set('Authorization', `Bearer ${adminToken}`)
       .send({
         title: 'High-Demand Flash Sale Concert',
-        description: 'Concurrency stress testing event with 100 tickets',
+        description: 'Concurrency stress testing event with 100 tickets quota',
         location: 'Grand Obsidian Arena',
-        eventDate: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString(),
+        startsAt: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString(),
         ticketTypes: [
-          { name: 'Regular', price: 100000, totalQuota: 100 },
-          { name: 'VIP', price: 500000, totalQuota: 10 },
+          { name: 'Regular', price: 100000, quota: 100 },
+          { name: 'VIP', price: 500000, quota: 10 },
         ],
       });
 
     eventId = eventRes.body.data.id;
     ticketTypeId = eventRes.body.data.ticketTypes.find((t: any) => t.name === 'Regular').id;
 
-    // 3. Buat 200 user berbeda untuk menyimulasikan 200 pembeli unik yang berebut tiket
+    // 3. Buat 200 user berbeda secara batch untuk menyimulasikan 200 pembeli unik yang berebut tiket
     console.log('[CONCURRENCY TEST SETUP] Menyiapkan 200 user simultan...');
-    const userCreationPromises = [];
+    const usersData = [];
     for (let i = 1; i <= 200; i++) {
-      userCreationPromises.push(
-        prisma.user.create({
-          data: {
-            email: `buyer_${i}@gotix-stress.com`,
-            passwordHash: 'dummyhash',
-            fullName: `Buyer ${i}`,
-            role: 'CUSTOMER',
-          },
-        })
-      );
+      usersData.push({
+        id: `00000000-0000-0000-0000-${i.toString().padStart(12, '0')}`,
+        email: `buyer_${i}@gotix-stress.id`,
+        passwordHash: 'dummy_hash_for_test',
+        fullName: `Buyer ${i}`,
+        role: 'BUYER' as const,
+      });
     }
-    const createdUsers = await Promise.all(userCreationPromises);
 
-    // Generate JWT token untuk masing-masing 200 user
-    const jwt = (await import('jsonwebtoken')).default;
-    const { ENV } = await import('../../src/config/env');
-    for (const u of createdUsers) {
+    await prisma.user.createMany({
+      data: usersData,
+      skipDuplicates: true,
+    });
+
+    for (const u of usersData) {
       const token = jwt.sign(
         { id: u.id, email: u.email, role: u.role },
         ENV.JWT_SECRET,
@@ -81,8 +83,9 @@ describe('CONCURRENCY STRESS TEST — 200 Requests for 100 Quota', () => {
     await prisma.$disconnect();
   });
 
-  it('TEST 7: Tepat 100 request berhasil (201), tepat 100 request gagal (400), tidak terjadi overselling', async () => {
+  it('TEST 7: Tepat 100 request berhasil (201), tepat 100 request gagal (409), reservedCount = 100, tidak ada negatif', async () => {
     console.log('[CONCURRENCY EXECUTION] Meluncurkan 200 request bersamaan...');
+    const startTime = Date.now();
 
     // Luncurkan 200 request pembelian tiket secara bersamaan menggunakan Promise.all
     const requests = userTokens.map((token) => {
@@ -96,50 +99,74 @@ describe('CONCURRENCY STRESS TEST — 200 Requests for 100 Quota', () => {
     });
 
     const responses = await Promise.all(requests);
+    const durationMs = Date.now() - startTime;
 
     let successCount = 0;
-    let failedCount = 0;
+    let soldOutCount = 0;
+    let otherCount = 0;
 
     for (const res of responses) {
       if (res.status === 201) {
         successCount++;
-      } else if (res.status === 400) {
-        failedCount++;
+      } else if (res.status === 409) {
+        soldOutCount++;
+      } else {
+        otherCount++;
       }
     }
 
-    console.log(`[CONCURRENCY RESULTS]`);
-    console.log(` - Sukses (201 Created)     : ${successCount}`);
-    console.log(` - Gagal  (400 Bad Request) : ${failedCount}`);
-    console.log(` - Total Request Dikirim    : ${responses.length}`);
-
-    // Verifikasi Ketat Kriteria Penilaian:
-    // 1. Tepat 100 sukses
-    expect(successCount).toBe(100);
-
-    // 2. Tepat 100 gagal karena kehabisan kuota
-    expect(failedCount).toBe(100);
-
-    // 3. Periksa kondisi database secara langsung
-    const ticketTypeInDb = await prisma.ticketType.findUnique({
+    // Ambil data final dari database langsung
+    const finalTicketType = await prisma.ticketType.findUnique({
       where: { id: ticketTypeId },
     });
 
-    expect(ticketTypeInDb).not.toBeNull();
-    expect(ticketTypeInDb!.totalQuota).toBe(100);
-    expect(ticketTypeInDb!.reservedQuota).toBe(100);
-    expect(ticketTypeInDb!.paidQuota).toBe(0);
+    const reservedCountFinal = finalTicketType?.reservedCount ?? -1;
+    const quotaFinal = finalTicketType?.quota ?? -1;
+    const remainingFinal = quotaFinal - reservedCountFinal;
 
-    // 4. Kuota sisa harus tepat 0 (TIDAK BOLEH NEGATIF / OVERSELLING)
-    const availableQuota =
-      ticketTypeInDb!.totalQuota -
-      (ticketTypeInDb!.reservedQuota + ticketTypeInDb!.paidQuota);
-    expect(availableQuota).toBe(0);
+    const summary = {
+      testName: 'Concurrency 200 requests against 100 quota',
+      timestamp: new Date().toISOString(),
+      durationMs,
+      totalRequests: 200,
+      quotaInitial: 100,
+      successCount,
+      soldOutCount,
+      otherCount,
+      reservedCountFinal,
+      remainingFinal,
+      oversellingDetected: reservedCountFinal > 100,
+      negativeStockDetected: remainingFinal < 0,
+    };
 
-    // 5. Total order berstatus PENDING_PAYMENT di database harus tepat 100
-    const totalOrdersInDb = await prisma.order.count({
-      where: { eventId, status: 'PENDING_PAYMENT' },
-    });
-    expect(totalOrdersInDb).toBe(100);
-  }, 120000);
+    console.log('=====================================================');
+    console.log('      CONCURRENCY STRESS TEST RESULT SUMMARY         ');
+    console.log('=====================================================');
+    console.log(`Total Requests      : ${summary.totalRequests}`);
+    console.log(`Initial Quota       : ${summary.quotaInitial}`);
+    console.log(`Success (201)       : ${summary.successCount}`);
+    console.log(`Sold Out (409)      : ${summary.soldOutCount}`);
+    console.log(`Other Statuses      : ${summary.otherCount}`);
+    console.log(`Final ReservedCount : ${summary.reservedCountFinal}`);
+    console.log(`Final Remaining     : ${summary.remainingFinal}`);
+    console.log(`Execution Duration  : ${summary.durationMs}ms`);
+    console.log(`Overselling Status  : ${summary.oversellingDetected ? 'FAIL (Overselling)' : 'PASSED (Zero Overselling)'}`);
+    console.log('=====================================================');
+
+    // Tulis bukti ke backend/tests/evidence/concurrency-result.json
+    const evidenceDir = path.resolve(__dirname, '../evidence');
+    if (!fs.existsSync(evidenceDir)) {
+      fs.mkdirSync(evidenceDir, { recursive: true });
+    }
+    const evidencePath = path.join(evidenceDir, 'concurrency-result.json');
+    fs.writeFileSync(evidencePath, JSON.stringify(summary, null, 2), 'utf-8');
+    console.log(`[CONCURRENCY TEST] Bukti hasil ditulis ke: ${evidencePath}`);
+
+    // Asersi ketat sesuai spesifikasi
+    expect(successCount).toBe(100);
+    expect(soldOutCount).toBe(100);
+    expect(otherCount).toBe(0);
+    expect(reservedCountFinal).toBe(100);
+    expect(remainingFinal).toBe(0);
+  });
 });

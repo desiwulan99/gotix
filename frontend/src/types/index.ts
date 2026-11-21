@@ -1,4 +1,4 @@
-export type Role = 'CUSTOMER' | 'ADMIN';
+export type Role = 'BUYER' | 'ADMIN' | 'CUSTOMER';
 
 export interface User {
   id: string;
@@ -11,11 +11,16 @@ export interface TicketType {
   id: string;
   name: string;
   price: number;
-  totalQuota: number;
-  reservedQuota: number;
-  paidQuota: number;
-  remainingQuota: number;
-  isSoldOut: boolean;
+  quota: number;
+  reservedCount: number;
+  remaining: number;
+  soldOut: boolean;
+  // Aliases for compatibility
+  totalQuota?: number;
+  reservedQuota?: number;
+  paidQuota?: number;
+  remainingQuota?: number;
+  isSoldOut?: boolean;
 }
 
 export interface Event {
@@ -23,10 +28,12 @@ export interface Event {
   title: string;
   description: string;
   location: string;
-  eventDate: string;
+  startsAt: string;
+  eventDate?: string;
   imageUrl?: string | null;
   status: 'DRAFT' | 'PUBLISHED' | 'CANCELLED' | 'COMPLETED';
-  isSoldOut: boolean;
+  soldOut: boolean;
+  isSoldOut?: boolean;
   ticketTypes: TicketType[];
 }
 
@@ -38,6 +45,30 @@ export interface OrderItem {
   ticketType?: TicketType;
 }
 
+export interface Payment {
+  id: string;
+  orderId: string;
+  amount: number;
+  status: 'PENDING' | 'SUCCESS' | 'FAILED';
+  paymentMethod: string;
+  paidAt?: string;
+}
+
+export interface Ticket {
+  id: string;
+  code: string;
+  ticketCode?: string; // alias
+  orderId: string;
+  orderItemId: string;
+  seq: number;
+  ticketTypeId: string;
+  userId: string;
+  status: 'VALID' | 'USED' | 'CANCELLED';
+  issuedAt: string;
+  ticketType?: TicketType;
+  order?: Order;
+}
+
 export interface Order {
   id: string;
   userId: string;
@@ -45,20 +76,12 @@ export interface Order {
   status: 'PENDING_PAYMENT' | 'PAID' | 'CANCELLED' | 'EXPIRED';
   totalAmount: number;
   expiresAt: string;
+  paidAt?: string;
+  cancelledAt?: string;
   createdAt: string;
   event?: Event;
   items: OrderItem[];
+  payment?: Payment;
   tickets?: Ticket[];
   user?: User;
-}
-
-export interface Ticket {
-  id: string;
-  ticketCode: string;
-  orderId: string;
-  ticketTypeId: string;
-  status: 'VALID' | 'USED' | 'CANCELLED';
-  issuedAt: string;
-  ticketType?: TicketType;
-  order?: Order;
 }

@@ -2,7 +2,8 @@ import { Response, NextFunction } from 'express';
 import { prisma } from '../config/prisma';
 import { sendSuccess } from '../utils/response';
 import { NotFoundError } from '../utils/errors';
-import { AuthRequest } from '../types';
+import { AuthRequest } from '../utils/response';
+import { Role } from '@prisma/client';
 
 export class TicketController {
   static async getUserTickets(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
@@ -20,7 +21,7 @@ export class TicketController {
         },
       });
 
-      sendSuccess(res, 'Daftar tiket berhasil diambil', tickets, 200);
+      sendSuccess(res, tickets, 200);
     } catch (error) {
       next(error);
     }
@@ -44,11 +45,11 @@ export class TicketController {
         throw new NotFoundError('Tiket tidak ditemukan');
       }
 
-      if (ticket.userId !== req.user!.id && req.user!.role !== 'ADMIN') {
+      if (ticket.userId !== req.user!.id && req.user!.role !== Role.ADMIN) {
         throw new NotFoundError('Tiket tidak ditemukan');
       }
 
-      sendSuccess(res, 'Detail tiket berhasil diambil', ticket, 200);
+      sendSuccess(res, ticket, 200);
     } catch (error) {
       next(error);
     }

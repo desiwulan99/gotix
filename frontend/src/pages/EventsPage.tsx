@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import api from '../services/api';
 import { Event } from '../types';
 import { EventCard } from '../components/EventCard';
-import { Search } from 'lucide-react';
+import { SkeletonLoader } from '../components/ui/SkeletonLoader';
+import { EmptyState } from '../components/ui/EmptyState';
 
 export const EventsPage: React.FC = () => {
   const [events, setEvents] = useState<Event[]>([]);
@@ -14,7 +15,8 @@ export const EventsPage: React.FC = () => {
     const fetchEvents = async () => {
       try {
         const res = await api.get('/events');
-        setEvents(res.data.data);
+        const data = Array.isArray(res.data.data) ? res.data.data : [];
+        setEvents(data);
       } catch (err) {
         console.error('Error fetching events:', err);
       } finally {
@@ -31,79 +33,100 @@ export const EventsPage: React.FC = () => {
 
     if (!matchesSearch) return false;
 
-    if (filterStatus === 'AVAILABLE') return !e.isSoldOut;
-    if (filterStatus === 'SOLDOUT') return e.isSoldOut;
+    const isSoldOut = e.soldOut || e.isSoldOut;
+    if (filterStatus === 'AVAILABLE') return !isSoldOut;
+    if (filterStatus === 'SOLDOUT') return isSoldOut;
     return true;
   });
 
   return (
-    <div className="max-w-6xl mx-auto py-12 px-6 min-h-screen bg-ivory text-charcoal">
-      <div className="border-b border-soft-gray pb-8 mb-10">
-        <h1 className="text-3xl font-black font-cinzel text-charcoal tracking-wide">
-          KATALOG EVENT
+    <div className="max-w-6xl mx-auto py-12 px-4 sm:px-6 min-h-screen bg-obsidian text-ivory">
+      {/* Header Halaman */}
+      <div className="border-b border-silver-mist/15 pb-8 mb-10 text-left">
+        <span className="text-[10px] uppercase tracking-[0.25em] text-dusk-rose font-cinzel">
+          ✦ RITUAL & JADWAL MALAM ✦
+        </span>
+        <h1 className="text-3xl sm:text-4xl font-normal font-cinzel text-ivory tracking-[0.06em] mt-1">
+          DAFTAR EVENT
         </h1>
-        <p className="text-xs text-muted-charcoal mt-1.5 font-light">
-          Pilih dan pesan tiket untuk konser musik, seni, dan pengalaman eksklusif dengan kuota terbatas.
+        <p className="text-xs sm:text-sm text-silver-mist/70 mt-2 font-inter max-w-2xl">
+          Eksplorasi konser musik neoklasik, festival, dan pameran seni dengan jaminan alokasi kuota anti-overselling.
         </p>
 
-        {/* Filters & Search */}
-        <div className="mt-8 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
+        {/* Toolbar Pencarian & Filter Kategori */}
+        <div className="mt-8 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-6">
+          {/* Input Pencarian Minimalis */}
           <div className="relative flex-1 max-w-md">
-            <Search className="w-4 h-4 text-royal-mauve absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Cari berdasarkan judul atau lokasi..."
+              placeholder="Cari berdasarkan judul atau kota..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full bg-white border border-soft-gray rounded-xl pl-10 pr-4 py-2.5 text-xs text-charcoal placeholder-secondary/60 focus:outline-none focus:border-royal-mauve focus:ring-2 focus:ring-royal-mauve/10 shadow-sm transition-all"
+              className="w-full bg-charcoal border border-silver-mist/20 px-4 py-2.5 text-xs text-ivory placeholder-silver-mist/40 focus:outline-none focus:border-dusk-rose transition-colors font-inter"
             />
+            {search && (
+              <button
+                onClick={() => setSearch('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-silver-mist/60 hover:text-ivory text-xs"
+              >
+                ✕
+              </button>
+            )}
           </div>
 
-          <div className="flex items-center gap-2">
+          {/* Filter Status: Tautan Huruf Kapital Kecil Khas Soul Cards */}
+          <div className="flex items-center space-x-6 sm:space-x-8">
             <button
               onClick={() => setFilterStatus('ALL')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-medium transition-all ${
+              className={`font-cinzel text-xs tracking-[0.2em] uppercase py-1 transition-all ${
                 filterStatus === 'ALL'
-                  ? 'bg-royal-mauve text-white shadow-sm'
-                  : 'bg-white text-muted-charcoal hover:bg-soft-lavender/40 border border-soft-gray'
+                  ? 'text-dusk-rose underline underline-offset-8 decoration-dusk-rose'
+                  : 'text-silver-mist/60 hover:text-ivory'
               }`}
             >
               Semua
             </button>
             <button
               onClick={() => setFilterStatus('AVAILABLE')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-medium transition-all ${
+              className={`font-cinzel text-xs tracking-[0.2em] uppercase py-1 transition-all ${
                 filterStatus === 'AVAILABLE'
-                  ? 'bg-royal-mauve text-white shadow-sm'
-                  : 'bg-white text-muted-charcoal hover:bg-soft-lavender/40 border border-soft-gray'
+                  ? 'text-dusk-rose underline underline-offset-8 decoration-dusk-rose'
+                  : 'text-silver-mist/60 hover:text-ivory'
               }`}
             >
               Tersedia
             </button>
             <button
               onClick={() => setFilterStatus('SOLDOUT')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-medium transition-all ${
+              className={`font-cinzel text-xs tracking-[0.2em] uppercase py-1 transition-all ${
                 filterStatus === 'SOLDOUT'
-                  ? 'bg-royal-mauve text-white shadow-sm'
-                  : 'bg-white text-muted-charcoal hover:bg-soft-lavender/40 border border-soft-gray'
+                  ? 'text-dusk-rose underline underline-offset-8 decoration-dusk-rose'
+                  : 'text-silver-mist/60 hover:text-ivory'
               }`}
             >
-              Sold Out
+              Habis
             </button>
           </div>
         </div>
       </div>
 
+      {/* Grid Kartu Tarot Event */}
       {isLoading ? (
-        <div className="text-center py-20 text-secondary text-xs">
-          Memuat daftar event...
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 sm:gap-8">
+          <SkeletonLoader count={6} className="aspect-[2/3] w-full" />
         </div>
       ) : filteredEvents.length === 0 ? (
-        <div className="text-center py-20 bg-white rounded-2xl border border-soft-gray shadow-soft-card">
-          <p className="text-muted-charcoal text-xs">Tidak ada event yang sesuai kriteria pencarian.</p>
-        </div>
+        <EmptyState
+          title="Tidak Ada Event yang Ditemukan"
+          description="Coba ubah kata kunci pencarian atau ganti filter status untuk melihat event lain."
+          actionText="TAMPILKAN SEMUA EVENT"
+          onAction={() => {
+            setSearch('');
+            setFilterStatus('ALL');
+          }}
+        />
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 sm:gap-8">
           {filteredEvents.map((event) => (
             <EventCard key={event.id} event={event} />
           ))}

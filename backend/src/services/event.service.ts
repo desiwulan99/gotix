@@ -10,28 +10,30 @@ export class EventService {
     title: string;
     description: string;
     location: string;
-    eventDate: string;
+    startsAt?: string;
+    eventDate?: string;
     imageUrl?: string | null;
     ticketTypes: Array<{
       name: string;
       price: number;
-      totalQuota: number;
+      quota: number;
     }>;
   }) {
+    const eventTime = new Date(data.startsAt || data.eventDate || Date.now());
+
     return await prisma.event.create({
       data: {
         title: data.title,
         description: data.description,
         location: data.location,
-        eventDate: new Date(data.eventDate),
+        startsAt: eventTime,
         imageUrl: data.imageUrl,
         ticketTypes: {
           create: data.ticketTypes.map((t) => ({
             name: t.name,
             price: new Prisma.Decimal(t.price),
-            totalQuota: t.totalQuota,
-            reservedQuota: 0,
-            paidQuota: 0,
+            quota: t.quota,
+            reservedCount: 0,
           })),
         },
       },
@@ -42,33 +44,63 @@ export class EventService {
   }
 
   /**
-   * Mengambil semua event yang dipublikasikan dengan kuota yang dihitung secara konsisten
+   * Mengambil semua event dengan kuota akurat, sisa kuota, dan flag soldOut
    */
-  static async getAllEvents() {
-    const events = await prisma.event.findMany({
-      orderBy: { eventDate: 'asc' },
-      include: {
-        ticketTypes: true,
-      },
-    });
+  static async getAllEvents(options?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    status?: EventStatus;
+  }) {
+    const page = options?.page && options.page > 0 ? options.page : 1;
+    const limit = options?.limit && options.limit > 0 ? options.limit : 20;
+    const skip = (page - 1) * limit;
 
-    return events.map((event) => {
+    const where: Prisma.EventWhereInput = {
+      ...(options?.status && { status: options.status }),
+      ...(options?.search && {
+        OR: [
+          { title: { contains: options.search, mode: 'insensitive' } },
+          { description: { contains: options.search, mode: 'insensitive' } },
+          { location: { contains: options.search, mode: 'insensitive' } },
+        ],
+      }),
+    };
+
+    const [events, total] = await Promise.all([
+      prisma.event.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { startsAt: 'asc' },
+        include: {
+          ticketTypes: {
+            orderBy: { price: 'asc' },
+          },
+        },
+      }),
+      prisma.event.count({ where }),
+    ]);
+
+    const enrichedEvents = events.map((event) => {
       let totalRemainingQuota = 0;
 
-      const enrichedTicketTypes = event.ticketTypes.map((tt) => {
-        const remainingQuota = tt.totalQuota - (tt.reservedQuota + tt.paidQuota);
-        const safeRemaining = Math.max(0, remainingQuota);
-        totalRemainingQuota += safeRemaining;
+      const ticketTypes = event.ticketTypes.map((tt) => {
+        const remaining = Math.max(0, tt.quota - tt.reservedCount);
+        totalRemainingQuota += remaining;
 
         return {
           id: tt.id,
           name: tt.name,
           price: Number(tt.price),
-          totalQuota: tt.totalQuota,
-          reservedQuota: tt.reservedQuota,
-          paidQuota: tt.paidQuota,
-          remainingQuota: safeRemaining,
-          isSoldOut: safeRemaining === 0,
+          quota: tt.quota,
+          reservedCount: tt.reservedCount,
+          remaining,
+          soldOut: remaining === 0,
+          // backwards-compatibility:
+          totalQuota: tt.quota,
+          remainingQuota: remaining,
+          isSoldOut: remaining === 0,
         };
       });
 
@@ -77,13 +109,25 @@ export class EventService {
         title: event.title,
         description: event.description,
         location: event.location,
-        eventDate: event.eventDate,
+        startsAt: event.startsAt,
+        eventDate: event.startsAt, // alias
         imageUrl: event.imageUrl,
         status: event.status,
+        soldOut: totalRemainingQuota === 0,
         isSoldOut: totalRemainingQuota === 0,
-        ticketTypes: enrichedTicketTypes,
+        ticketTypes,
       };
     });
+
+    return {
+      items: enrichedEvents,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
   /**
@@ -93,7 +137,9 @@ export class EventService {
     const event = await prisma.event.findUnique({
       where: { id },
       include: {
-        ticketTypes: true,
+        ticketTypes: {
+          orderBy: { price: 'asc' },
+        },
       },
     });
 
@@ -102,20 +148,22 @@ export class EventService {
     }
 
     let totalRemainingQuota = 0;
-    const enrichedTicketTypes = event.ticketTypes.map((tt) => {
-      const remainingQuota = tt.totalQuota - (tt.reservedQuota + tt.paidQuota);
-      const safeRemaining = Math.max(0, remainingQuota);
-      totalRemainingQuota += safeRemaining;
+    const ticketTypes = event.ticketTypes.map((tt) => {
+      const remaining = Math.max(0, tt.quota - tt.reservedCount);
+      totalRemainingQuota += remaining;
 
       return {
         id: tt.id,
         name: tt.name,
         price: Number(tt.price),
-        totalQuota: tt.totalQuota,
-        reservedQuota: tt.reservedQuota,
-        paidQuota: tt.paidQuota,
-        remainingQuota: safeRemaining,
-        isSoldOut: safeRemaining === 0,
+        quota: tt.quota,
+        reservedCount: tt.reservedCount,
+        remaining,
+        soldOut: remaining === 0,
+        // compatibility aliases
+        totalQuota: tt.quota,
+        remainingQuota: remaining,
+        isSoldOut: remaining === 0,
       };
     });
 
@@ -124,11 +172,13 @@ export class EventService {
       title: event.title,
       description: event.description,
       location: event.location,
-      eventDate: event.eventDate,
+      startsAt: event.startsAt,
+      eventDate: event.startsAt,
       imageUrl: event.imageUrl,
       status: event.status,
+      soldOut: totalRemainingQuota === 0,
       isSoldOut: totalRemainingQuota === 0,
-      ticketTypes: enrichedTicketTypes,
+      ticketTypes,
     };
   }
 
@@ -141,12 +191,15 @@ export class EventService {
       title?: string;
       description?: string;
       location?: string;
+      startsAt?: string;
       eventDate?: string;
       imageUrl?: string | null;
       status?: EventStatus;
     }
   ) {
-    await this.getEventById(id); // Pastikan event ada
+    await this.getEventById(id);
+
+    const eventDate = data.startsAt || data.eventDate;
 
     return await prisma.event.update({
       where: { id },
@@ -154,7 +207,7 @@ export class EventService {
         ...(data.title && { title: data.title }),
         ...(data.description && { description: data.description }),
         ...(data.location && { location: data.location }),
-        ...(data.eventDate && { eventDate: new Date(data.eventDate) }),
+        ...(eventDate && { startsAt: new Date(eventDate) }),
         ...(data.imageUrl !== undefined && { imageUrl: data.imageUrl }),
         ...(data.status && { status: data.status }),
       },
@@ -169,7 +222,7 @@ export class EventService {
    */
   static async addTicketType(
     eventId: string,
-    data: { name: string; price: number; totalQuota: number }
+    data: { name: string; price: number; quota: number }
   ) {
     await this.getEventById(eventId);
 
@@ -178,9 +231,8 @@ export class EventService {
         eventId,
         name: data.name,
         price: new Prisma.Decimal(data.price),
-        totalQuota: data.totalQuota,
-        reservedQuota: 0,
-        paidQuota: 0,
+        quota: data.quota,
+        reservedCount: 0,
       },
     });
   }

@@ -3,32 +3,55 @@
 @tailwind utilities;
 
 @layer base {
+  html {
+    color-scheme: dark;
+  }
+
   body {
-    background-color: #F9F6F2;
-    color: #302936;
+    background-color: #0D0B10;
+    color: #F2EFF4;
     font-family: 'Inter', sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
   }
 
   h1, h2, h3, h4, h5, h6 {
     font-family: 'Cinzel', serif;
-    letter-spacing: 0.03em;
+    letter-spacing: 0.04em;
+    color: #F2EFF4;
   }
 }
 
-/* Subtle Gothic Luxury Scrollbar */
+/* Custom Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #F9F6F2;
+  background: #0D0B10;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #B9A5C8;
-  border-radius: 9999px;
+  background: #392544;
+  border-radius: 2px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #957BA5;
+  background: #80658F;
+}
+
+/* Aksesibilitas: Outline fokus keyboard yang jelas */
+:focus-visible {
+  outline: 2px solid #D9A5A0;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

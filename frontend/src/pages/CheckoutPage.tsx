@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import api from '../services/api';
 import { Order } from '../types';
-import { Clock, ShieldCheck, AlertCircle, XCircle } from 'lucide-react';
+import { Button } from '../components/ui/Button';
+import { StatusBadge } from '../components/ui/StatusBadge';
+import { formatRupiah } from '../lib/ticketRules';
 
 export const CheckoutPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -15,35 +17,44 @@ export const CheckoutPage: React.FC = () => {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isSuccess, setIsSuccess] = useState(false);
 
+  const fetchOrder = async () => {
+    try {
+      const res = await api.get(`/orders/${id}`);
+      const orderData: Order = res.data.data;
+      setOrder(orderData);
+
+      // Hitung selisih detik dari expiresAt server terhadap waktu saat ini
+      const diff = Math.max(
+        0,
+        Math.floor((new Date(orderData.expiresAt).getTime() - Date.now()) / 1000)
+      );
+      setTimeLeft(diff);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Gagal mengambil data pesanan');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const fetchOrder = async () => {
-      try {
-        const res = await api.get(`/orders/${id}`);
-        const orderData: Order = res.data.data;
-        setOrder(orderData);
-
-        const diff = Math.max(
-          0,
-          Math.floor((new Date(orderData.expiresAt).getTime() - Date.now()) / 1000)
-        );
-        setTimeLeft(diff);
-      } catch (err: any) {
-        setErrorMsg(err.message || 'Gagal mengambil data pesanan');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
     fetchOrder();
   }, [id]);
 
+  // Countdown timer presisi
   useEffect(() => {
-    if (timeLeft <= 0) return;
+    if (timeLeft <= 0) {
+      if (order?.status === 'PENDING_PAYMENT') {
+        // Ambil ulang status jika timer habis untuk sinkronisasi lazy-expiry backend
+        fetchOrder();
+      }
+      return;
+    }
 
     const timer = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
           clearInterval(timer);
+          fetchOrder();
           return 0;
         }
         return prev - 1;
@@ -68,27 +79,24 @@ export const CheckoutPage: React.FC = () => {
       });
       setIsSuccess(true);
       setTimeout(() => {
-        navigate('/my-tickets');
-      }, 2000);
+        navigate('/tiket-saya');
+      }, 1500);
     } catch (err: any) {
       setErrorMsg(err.message || 'Pembayaran gagal diproses');
+      // Refresh order jika gagal (misal expired)
+      fetchOrder();
     } finally {
       setIsProcessing(false);
     }
   };
 
   const handleCancel = async () => {
-    if (
-      !window.confirm(
-        'Apakah Anda yakin ingin membatalkan pesanan ini? Kuota tiket akan segera dikembalikan.'
-      )
-    ) {
+    if (!window.confirm('Apakah Anda yakin ingin membatalkan pesanan ini? Kuota tiket akan segera dikembalikan.')) {
       return;
     }
     setIsProcessing(true);
     try {
       await api.post(`/orders/${id}/cancel`);
-      alert('Pesanan berhasil dibatalkan');
       navigate('/events');
     } catch (err: any) {
       setErrorMsg(err.message || 'Gagal membatalkan pesanan');
@@ -98,120 +106,175 @@ export const CheckoutPage: React.FC = () => {
   };
 
   if (isLoading) {
-    return <div className="text-center py-24 text-secondary text-xs">Memuat pesanan...</div>;
-  }
-
-  if (!order) {
     return (
-      <div className="text-center py-24">
-        <p className="text-red-500 text-xs">Pesanan tidak ditemukan.</p>
+      <div className="max-w-xl mx-auto py-20 px-4 text-center">
+        <div className="text-dusk-rose text-2xl select-none mb-3 animate-pulse">✦</div>
+        <p className="font-cinzel text-xs tracking-[0.2em] uppercase text-silver-mist">
+          Memuat ringkasan pesanan...
+        </p>
       </div>
     );
   }
 
-  const isExpired =
-    order.status === 'EXPIRED' || (order.status === 'PENDING_PAYMENT' && timeLeft <= 0);
+  if (!order) {
+    return (
+      <div className="max-w-md mx-auto py-20 px-4 text-center">
+        <h2 className="font-cinzel text-xl text-ivory mb-4">Pesanan Tidak Ditemukan</h2>
+        <Link to="/events" className="font-cinzel text-xs tracking-[0.2em] text-dusk-rose underline">
+          KEMBALI KE EVENTS
+        </Link>
+      </div>
+    );
+  }
+
+  const isExpired = order.status === 'EXPIRED' || (order.status === 'PENDING_PAYMENT' && timeLeft <= 0);
+  const isPaid = order.status === 'PAID';
+  const isCancelled = order.status === 'CANCELLED';
 
   return (
-    <div className="max-w-3xl mx-auto py-12 px-6 min-h-screen bg-ivory text-charcoal">
-      <div className="bg-white border border-soft-gray rounded-3xl p-6 sm:p-10 shadow-soft-card">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-soft-gray gap-4">
+    <div className="max-w-2xl mx-auto py-12 px-4 sm:px-6 min-h-screen bg-obsidian text-ivory">
+      {/* Header Checkout */}
+      <div className="border-b border-silver-mist/15 pb-6 mb-8 text-left">
+        <div className="flex items-center justify-between">
           <div>
-            <span className="text-[11px] uppercase tracking-widest text-secondary font-semibold">
-              Checkout Pemesanan
+            <span className="text-[10px] uppercase tracking-[0.25em] text-dusk-rose font-cinzel">
+              ✦ RESERVASI & PEMBAYARAN ✦
             </span>
-            <h1 className="text-xl sm:text-2xl font-bold font-cinzel text-charcoal mt-0.5">
-              {order.event?.title}
+            <h1 className="text-2xl sm:text-3xl font-normal font-cinzel text-ivory tracking-[0.05em] mt-1">
+              CHECKOUT PESANAN
             </h1>
           </div>
+          <StatusBadge status={isExpired ? 'EXPIRED' : order.status} />
+        </div>
+      </div>
 
-          {/* Countdown Display */}
-          <div className="flex items-center gap-2.5 px-4 py-2 rounded-2xl bg-pearl border border-soft-gray shadow-xs">
-            <Clock
-              className={`w-4 h-4 ${
-                isExpired ? 'text-red-500' : 'text-royal-mauve animate-pulse'
-              }`}
-            />
-            <div>
-              <div className="text-[10px] uppercase text-secondary font-semibold">
-                Sisa Waktu Bayar
-              </div>
-              <div
-                className={`text-sm font-black font-mono tracking-wider ${
-                  isExpired ? 'text-red-600' : 'text-charcoal'
-                }`}
-              >
-                {isExpired ? 'KEDALUWARSA' : formatCountdown(timeLeft)}
-              </div>
-            </div>
+      {/* Banner Countdown Timer (Hanya jika PENDING_PAYMENT dan belum kedaluwarsa) */}
+      {!isPaid && !isCancelled && !isExpired && (
+        <div className="p-5 bg-charcoal border border-dusk-rose/40 mb-8 flex items-center justify-between">
+          <div>
+            <span className="block text-[11px] font-cinzel uppercase tracking-[0.2em] text-silver-mist/70">
+              Sisa Waktu Penahanan Kuota
+            </span>
+            <span className="text-xs font-inter text-silver-mist/60">
+              Selesaikan pembayaran sebelum batas waktu habis
+            </span>
+          </div>
+          <div className="font-inter font-bold text-2xl sm:text-3xl text-dusk-rose tracking-wider">
+            {formatCountdown(timeLeft)}
           </div>
         </div>
+      )}
 
-        {errorMsg && (
-          <div className="my-6 p-4 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0 text-red-500" />
-            <span>{errorMsg}</span>
-          </div>
-        )}
+      {/* Alert Status Sukses / Expired / Cancelled */}
+      {isSuccess && (
+        <div className="p-4 bg-charcoal border border-emerald-500/60 text-emerald-300 text-xs font-inter mb-6">
+          Pembayaran berhasil! Mengarahkan ke halaman Tiket Saya...
+        </div>
+      )}
 
-        {isSuccess && (
-          <div className="my-6 p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs flex items-center gap-2">
-            <ShieldCheck className="w-4 h-4 shrink-0 text-emerald-500" />
-            <span>Pembayaran Berhasil! Tiket resmi sedang diterbitkan dan Anda akan dialihkan...</span>
-          </div>
-        )}
+      {isExpired && (
+        <div className="p-4 bg-charcoal border border-red-500/50 text-red-300 text-xs font-inter mb-6">
+          Pesanan ini telah kedaluwarsa. Kuota tiket telah dipulihkan ke sistem secara otomatis.
+        </div>
+      )}
 
-        {/* Rincian Pesanan */}
-        <div className="py-6 border-b border-soft-gray">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-muted-charcoal mb-4 font-cinzel">
-            Rincian Item Tiket
+      {isCancelled && (
+        <div className="p-4 bg-charcoal border border-zinc-600 text-zinc-400 text-xs font-inter mb-6">
+          Pesanan ini telah dibatalkan. Kuota tiket telah dikembalikan.
+        </div>
+      )}
+
+      {errorMsg && (
+        <div className="p-4 bg-charcoal border border-red-500/60 text-red-300 text-xs font-inter mb-6">
+          {errorMsg}
+        </div>
+      )}
+
+      {/* Rincian Pesanan */}
+      <div className="bg-charcoal border border-silver-mist/20 p-6 space-y-6 text-left mb-8">
+        <div>
+          <span className="block text-[10px] uppercase font-cinzel text-silver-mist/60 tracking-wider">
+            Event
+          </span>
+          <h3 className="font-cinzel text-lg text-ivory tracking-wide mt-0.5">
+            {order.event?.title}
           </h3>
+          <p className="text-xs text-silver-mist/70 font-inter mt-1">
+            {order.event?.location}
+          </p>
+        </div>
 
+        <div className="h-[1px] w-full bg-silver-mist/10" />
+
+        {/* Item Tiket yang Dipesan */}
+        <div>
+          <span className="block text-[10px] uppercase font-cinzel text-silver-mist/60 tracking-wider mb-3">
+            Item Tiket
+          </span>
           <div className="space-y-3">
             {order.items.map((item) => (
-              <div key={item.id} className="flex justify-between items-center text-xs">
+              <div key={item.id} className="flex items-center justify-between text-xs font-inter">
                 <div>
-                  <span className="font-semibold text-charcoal">{item.ticketType?.name}</span>
-                  <span className="text-secondary ml-2 font-light">x {item.quantity}</span>
+                  <span className="font-medium text-ivory">
+                    {item.ticketType?.name || 'Tiket'}
+                  </span>
+                  <span className="text-silver-mist/60 ml-2">x {item.quantity}</span>
                 </div>
-                <span className="font-medium text-charcoal">
-                  Rp {(item.quantity * Number(item.unitPrice)).toLocaleString('id-ID')}
+                <span className="text-ivory font-semibold">
+                  {formatRupiah(Number(item.unitPrice) * item.quantity)}
                 </span>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Total Bayar */}
-        <div className="py-6 border-b border-soft-gray flex justify-between items-center">
-          <span className="text-sm font-semibold text-charcoal font-cinzel">Total Pembayaran</span>
-          <span className="text-xl font-bold font-cinzel text-plum">
-            Rp {Number(order.totalAmount).toLocaleString('id-ID')}
+        <div className="h-[1px] w-full bg-silver-mist/10" />
+
+        {/* Total Pembayaran */}
+        <div className="flex items-center justify-between pt-2">
+          <span className="font-cinzel text-sm uppercase tracking-wider text-ivory">
+            Total Pembayaran
+          </span>
+          <span className="font-inter font-bold text-2xl text-dusk-rose">
+            {formatRupiah(Number(order.totalAmount))}
           </span>
         </div>
+      </div>
 
-        {/* Tombol Aksi */}
-        <div className="mt-8 flex flex-col sm:flex-row items-center gap-4">
-          <button
-            onClick={handlePay}
-            disabled={
-              isProcessing || isExpired || isSuccess || order.status !== 'PENDING_PAYMENT'
-            }
-            className="w-full sm:flex-1 py-3.5 rounded-xl bg-royal-mauve hover:bg-plum disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold uppercase tracking-wider transition-all shadow-sm hover:shadow"
-          >
-            {isProcessing ? 'Memproses...' : 'Bayar Sekarang (Simulasi)'}
-          </button>
+      {/* Tombol Aksi */}
+      <div className="flex flex-col sm:flex-row items-center justify-end gap-4">
+        {!isPaid && !isCancelled && !isExpired && (
+          <>
+            <Button
+              variant="danger"
+              size="md"
+              onClick={handleCancel}
+              disabled={isProcessing}
+              className="w-full sm:w-auto"
+            >
+              Batalkan Pesanan
+            </Button>
 
-          <button
-            onClick={handleCancel}
-            disabled={isProcessing || isSuccess || order.status !== 'PENDING_PAYMENT'}
-            className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-white hover:bg-red-50 border border-soft-gray hover:border-red-300 text-muted-charcoal hover:text-red-600 text-xs font-semibold uppercase tracking-wider transition-all flex items-center justify-center gap-2"
-          >
-            <XCircle className="w-4 h-4" />
-            <span>Batalkan Pesanan</span>
-          </button>
-        </div>
+            <Button
+              variant="primary"
+              size="lg"
+              onClick={handlePay}
+              isLoading={isProcessing}
+              disabled={isProcessing}
+              className="w-full sm:w-auto px-8"
+            >
+              Bayar Sekarang (Simulasi)
+            </Button>
+          </>
+        )}
+
+        {(isPaid || isExpired || isCancelled) && (
+          <Link to="/events" className="w-full sm:w-auto">
+            <Button variant="primary" size="md" className="w-full">
+              Kembali ke Katalog Event
+            </Button>
+          </Link>
+        )}
       </div>
     </div>
   );

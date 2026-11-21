@@ -1,163 +1,114 @@
-const { PrismaClient, Role, EventStatus } = require('@prisma/client');
-const bcrypt = require('bcrypt');
+const { PrismaClient } = require('@prisma/client');
+const bcrypt = require('bcryptjs');
 
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('[SEED] Memeriksa data awal database GOTIX...');
-
-  // 1. Cek atau Buat Admin
-  const existingAdmin = await prisma.user.findUnique({
-    where: { email: 'admin@gotix.com' },
-  });
+  console.log('[SEED] Memulai proses seeding database GOTIX (Production JS)...');
 
   const saltRounds = 10;
-  const adminPassword = await bcrypt.hash('admin123', saltRounds);
-  const customerPassword = await bcrypt.hash('customer123', saltRounds);
+  const adminPassword = await bcrypt.hash('AdminPass123!', saltRounds);
+  const buyerPassword = await bcrypt.hash('BuyerPass123!', saltRounds);
 
-  if (!existingAdmin) {
-    await prisma.user.create({
-      data: {
-        email: 'admin@gotix.com',
-        passwordHash: adminPassword,
-        fullName: 'GOTIX Administrator',
-        role: Role.ADMIN,
-      },
-    });
-    console.log('[SEED] Admin default berhasil dibuat: admin@gotix.com (pass: admin123)');
-  }
-
-  // 2. Cek atau Buat Customer 1
-  const existingCustomer1 = await prisma.user.findUnique({
-    where: { email: 'alex@example.com' },
+  // 1. Upsert Admin demo
+  const admin = await prisma.user.upsert({
+    where: { email: 'admin@gotix.id' },
+    update: {
+      passwordHash: adminPassword,
+      role: 'ADMIN',
+    },
+    create: {
+      email: 'admin@gotix.id',
+      passwordHash: adminPassword,
+      fullName: 'GOTIX Curator (Admin)',
+      role: 'ADMIN',
+    },
   });
 
-  if (!existingCustomer1) {
-    await prisma.user.create({
-      data: {
-        email: 'alex@example.com',
-        passwordHash: customerPassword,
-        fullName: 'Alex Vance',
-        role: Role.CUSTOMER,
-      },
-    });
-    console.log('[SEED] Customer 1 berhasil dibuat: alex@example.com (pass: customer123)');
-  }
-
-  // 3. Cek atau Buat Customer 2
-  const existingCustomer2 = await prisma.user.findUnique({
-    where: { email: 'sarah@example.com' },
+  // 2. Upsert Buyer demo
+  const buyer = await prisma.user.upsert({
+    where: { email: 'buyer1@example.com' },
+    update: {
+      passwordHash: buyerPassword,
+      role: 'BUYER',
+    },
+    create: {
+      email: 'buyer1@example.com',
+      passwordHash: buyerPassword,
+      fullName: 'Gothic Pilgrim (Buyer)',
+      role: 'BUYER',
+    },
   });
 
-  if (!existingCustomer2) {
-    await prisma.user.create({
-      data: {
-        email: 'sarah@example.com',
-        passwordHash: customerPassword,
-        fullName: 'Sarah Connor',
-        role: Role.CUSTOMER,
-      },
+  console.log(`[SEED] Akun Pengguna Terkonfigurasi:`);
+  console.log(` - Admin : ${admin.email} | Password: AdminPass123!`);
+  console.log(` - Buyer : ${buyer.email} | Password: BuyerPass123!`);
+
+  // 3. Upsert Event Unggulan
+  const eventData = [
+    {
+      title: 'Nocturnal Symphony: Requiem for the Shadows',
+      description:
+        'Sebuah konser orkestra neoklasik gelap berpadu dengan aransemen paduan suara katedral kuno di bawah remang cahaya lilin obsidian.',
+      location: 'Grand Obsidian Hall, Jakarta',
+      startsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+      ticketTypes: [
+        { name: 'Regular', price: 250000, quota: 100 },
+        { name: 'VIP', price: 750000, quota: 30 },
+      ],
+    },
+    {
+      title: 'Midnight Masquerade: The Violet Veil',
+      description:
+        'Pesta dansa bertopeng mewah dengan dress code Gothic Victorian. Dihadiri oleh musisi ambient internasional dan pertunjukan visual misterius.',
+      location: 'Royal Plum Ballroom, Bandung',
+      startsAt: new Date(Date.now() + 21 * 24 * 60 * 60 * 1000),
+      ticketTypes: [
+        { name: 'Regular', price: 350000, quota: 50 },
+        { name: 'VIP', price: 1200000, quota: 15 },
+      ],
+    },
+    {
+      title: 'Eclipse Echoes: Dark Electronic Gathering',
+      description:
+        'Festival musik darkwave dan synthwave atmosferik di ruang hangar industrial beraksen lampu ultraviolet.',
+      location: 'Charcoal Warehouse, Surabaya',
+      startsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      ticketTypes: [
+        { name: 'Regular', price: 180000, quota: 5 },
+        { name: 'VIP', price: 500000, quota: 2 },
+      ],
+    },
+  ];
+
+  for (const ev of eventData) {
+    const existing = await prisma.event.findFirst({
+      where: { title: ev.title },
     });
-    console.log('[SEED] Customer 2 berhasil dibuat: sarah@example.com (pass: customer123)');
+
+    if (!existing) {
+      await prisma.event.create({
+        data: {
+          title: ev.title,
+          description: ev.description,
+          location: ev.location,
+          startsAt: ev.startsAt,
+          status: 'PUBLISHED',
+          ticketTypes: {
+            create: ev.ticketTypes.map((tt) => ({
+              name: tt.name,
+              price: tt.price,
+              quota: tt.quota,
+              reservedCount: 0,
+            })),
+          },
+        },
+      });
+      console.log(`[SEED] Event baru dibuat: ${ev.title}`);
+    }
   }
 
-  // 4. Cek atau Buat Event Bawaan jika belum ada event sama sekali
-  const eventCount = await prisma.event.count();
-  if (eventCount === 0) {
-    console.log('[SEED] Membuat event unggulan default...');
-
-    await prisma.event.create({
-      data: {
-        title: 'Nocturnal Symphony: Requiem for the Shadows',
-        description: 'Sebuah konser orkestra neoklasik gelap berpadu dengan aransemen paduan suara katedral kuno di bawah remang cahaya lilin obsidian.',
-        location: 'Grand Obsidian Hall, Jakarta',
-        eventDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
-        imageUrl: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?q=80&w=1200&auto=format&fit=crop',
-        status: EventStatus.PUBLISHED,
-        ticketTypes: {
-          create: [
-            {
-              name: 'Regular',
-              price: 250000,
-              totalQuota: 100,
-              reservedQuota: 0,
-              paidQuota: 0,
-            },
-            {
-              name: 'VIP',
-              price: 750000,
-              totalQuota: 30,
-              reservedQuota: 0,
-              paidQuota: 0,
-            },
-          ],
-        },
-      },
-    });
-
-    await prisma.event.create({
-      data: {
-        title: 'Midnight Masquerade: The Violet Veil',
-        description: 'Pesta dansa bertopeng mewah dengan dress code Gothic Victorian. Dihadiri oleh musisi ambient internasional dan pertunjukan visual misterius.',
-        location: 'Royal Plum Ballroom, Bandung',
-        eventDate: new Date(Date.now() + 21 * 24 * 60 * 60 * 1000),
-        imageUrl: 'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?q=80&w=1200&auto=format&fit=crop',
-        status: EventStatus.PUBLISHED,
-        ticketTypes: {
-          create: [
-            {
-              name: 'Regular',
-              price: 350000,
-              totalQuota: 50,
-              reservedQuota: 0,
-              paidQuota: 0,
-            },
-            {
-              name: 'VIP',
-              price: 1200000,
-              totalQuota: 15,
-              reservedQuota: 0,
-              paidQuota: 0,
-            },
-          ],
-        },
-      },
-    });
-
-    await prisma.event.create({
-      data: {
-        title: 'Eclipse Echoes: Dark Electronic Gathering',
-        description: 'Festival musik darkwave dan synthwave atmosferik di ruang hangar industrial beraksen lampu ultraviolet.',
-        location: 'Charcoal Warehouse, Surabaya',
-        eventDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-        imageUrl: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?q=80&w=1200&auto=format&fit=crop',
-        status: EventStatus.PUBLISHED,
-        ticketTypes: {
-          create: [
-            {
-              name: 'Regular',
-              price: 180000,
-              totalQuota: 5,
-              reservedQuota: 0,
-              paidQuota: 0,
-            },
-            {
-              name: 'VIP',
-              price: 500000,
-              totalQuota: 2,
-              reservedQuota: 0,
-              paidQuota: 0,
-            },
-          ],
-        },
-      },
-    });
-    console.log('[SEED] 3 Event unggulan berhasil dibuat.');
-  } else {
-    console.log(`[SEED] Database sudah memiliki ${eventCount} event, melewati pembuatan event baru.`);
-  }
-
-  console.log('[SEED] Inisialisasi data selesai.');
+  console.log('[SEED] Seeding selesai dengan sukses!');
 }
 
 main()

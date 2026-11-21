@@ -1,16 +1,22 @@
 import { OrderStatus, Prisma } from '@prisma/client';
 import { prisma } from '../config/prisma';
-import { BadRequestError, NotFoundError } from '../utils/errors';
+import {
+  BadRequestError,
+  ConflictError,
+  NotFoundError,
+  SoldOutError,
+  UnprocessableEntityError,
+} from '../utils/errors';
 import { ENV } from '../config/env';
+import { expireOverdueOrders } from '../workers/expiry.worker';
 
 export class OrderService {
   /**
-   * Membuat reservasi tiket dengan proteksi concurrency-safe (Row-Level Locking).
-   * Menjamin:
-   * 1. 1 pesanan maksimal 4 tiket.
-   * 2. 1 user maksimal memegang 4 tiket untuk event yang sama (gabungan PENDING_PAYMENT dan PAID).
-   * 3. Kuota ditahan aman selama 15 menit.
-   * 4. Dua request bersamaan tidak akan mengalami overselling.
+   * Membuat reservasi tiket dengan proteksi concurrency-safe:
+   * 1. PostgreSQL Transaction-level Advisory Lock per (userId, eventId)
+   * 2. Validasi batas maksimal 4 tiket aktif per user per event
+   * 3. Atomic Conditional Update pada reservedCount (WHERE reservedCount + qty <= quota)
+   * 4. Pengurutan ID tiket untuk mencegah deadlock
    */
   static async createOrder(
     userId: string,
@@ -19,232 +25,267 @@ export class OrderService {
       items: Array<{ ticketTypeId: string; quantity: number }>;
     }
   ) {
-    // 1. Validasi batas pembelian per pesanan (1 s/d 4 tiket)
-    const totalRequestedInOrder = data.items.reduce((sum, item) => sum + item.quantity, 0);
-    if (totalRequestedInOrder < 1 || totalRequestedInOrder > 4) {
+    // 1. Validasi input pesanan (1..4 tiket per pesanan)
+    if (!data.items || data.items.length === 0) {
+      throw new BadRequestError('Pesanan harus berisi minimal 1 item tiket');
+    }
+
+    const totalRequested = data.items.reduce((sum, item) => sum + item.quantity, 0);
+    if (totalRequested < 1 || totalRequested > 4) {
       throw new BadRequestError('Jumlah tiket per pesanan minimal 1 dan maksimal 4 tiket');
     }
 
-    // 2. Jalankan transaksi database interaktif untuk concurrency-safety
-    return await prisma.$transaction(
-      async (tx) => {
-        // A. Validasi batas maksimal 4 tiket per user untuk event ini
-        // Ambil seluruh tiket aktif milik user pada event ini (order PENDING_PAYMENT atau PAID)
-        const activeOrders = await tx.order.findMany({
-          where: {
-            userId,
-            eventId: data.eventId,
-            status: { in: [OrderStatus.PENDING_PAYMENT, OrderStatus.PAID] },
-          },
-          include: {
-            items: true,
-          },
-        });
-
-        const currentActiveTicketsCount = activeOrders.reduce((total, order) => {
-          return total + order.items.reduce((itemTotal, item) => itemTotal + item.quantity, 0);
-        }, 0);
-
-        if (currentActiveTicketsCount + totalRequestedInOrder > 4) {
-          throw new BadRequestError(
-            `Pembelian melebihi batas! Anda sudah memiliki ${currentActiveTicketsCount} tiket aktif untuk event ini. Batas maksimal adalah 4 tiket.`
-          );
-        }
-
-        // B. Kunci baris TicketType dengan SELECT ... FOR UPDATE di PostgreSQL
-        // dan validasi ketersediaan kuota secara atomik
-        let totalAmount = new Prisma.Decimal(0);
-        const orderItemsToCreate: Array<{
-          ticketTypeId: string;
-          quantity: number;
-          unitPrice: Prisma.Decimal;
-        }> = [];
-
-        for (const item of data.items) {
-          // Kunci baris spesifik ini dari pembacaan transaksi lain
-          const lockedTicketTypes: Array<{
-            id: string;
-            name: string;
-            price: Prisma.Decimal;
-            totalQuota: number;
-            reservedQuota: number;
-            paidQuota: number;
-          }> = await tx.$queryRaw`
-            SELECT id, name, price, "totalQuota", "reservedQuota", "paidQuota"
-            FROM "TicketType"
-            WHERE id = ${item.ticketTypeId} AND "eventId" = ${data.eventId}
-            FOR UPDATE
-          `;
-
-          if (lockedTicketTypes.length === 0) {
-            throw new NotFoundError(`Tipe tiket dengan ID ${item.ticketTypeId} tidak ditemukan`);
-          }
-
-          const ticketType = lockedTicketTypes[0];
-          const availableQuota = ticketType.totalQuota - (ticketType.reservedQuota + ticketType.paidQuota);
-
-          if (availableQuota < item.quantity) {
-            throw new BadRequestError(
-              `Kuota tiket '${ticketType.name}' tidak mencukupi. Sisa tersedia: ${Math.max(0, availableQuota)}`
-            );
-          }
-
-          // Tambah reservedQuota secara atomik
-          await tx.$executeRaw`
-            UPDATE "TicketType"
-            SET "reservedQuota" = "reservedQuota" + ${item.quantity},
-                "updatedAt" = NOW()
-            WHERE id = ${item.ticketTypeId}
-          `;
-
-          const itemTotal = new Prisma.Decimal(ticketType.price).mul(item.quantity);
-          totalAmount = totalAmount.add(itemTotal);
-
-          orderItemsToCreate.push({
-            ticketTypeId: item.ticketTypeId,
-            quantity: item.quantity,
-            unitPrice: new Prisma.Decimal(ticketType.price),
-          });
-        }
-
-        // C. Tentukan waktu kedaluwarsa 15 menit
-        const expiresAt = new Date(Date.now() + ENV.ORDER_EXPIRY_MINUTES * 60 * 1000);
-
-        // D. Buat Order dan OrderItems
-        const order = await tx.order.create({
-          data: {
-            userId,
-            eventId: data.eventId,
-            status: OrderStatus.PENDING_PAYMENT,
-            totalAmount,
-            expiresAt,
-            items: {
-              create: orderItemsToCreate,
-            },
-          },
-          include: {
-            items: {
-              include: {
-                ticketType: true,
-              },
-            },
-            event: true,
-          },
-        });
-
-        return order;
-      },
-      {
-        timeout: 10000, // Timeout transaksi 10 detik
-        isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
+    for (const item of data.items) {
+      if (item.quantity < 1 || item.quantity > 4) {
+        throw new BadRequestError('Jumlah tiap tipe tiket minimal 1 dan maksimal 4');
       }
-    );
+    }
+
+    // 2. Jalankan transaksi database dengan retry terbatas untuk menangani deadlock (maks 3x)
+    let attempts = 0;
+    const maxAttempts = 3;
+
+    while (attempts < maxAttempts) {
+      try {
+        attempts++;
+        return await prisma.$transaction(
+          async (tx) => {
+            // A. Ambil PostgreSQL Transaction Advisory Lock per (userId, eventId)
+            // Ini mencegah 2 request paralel dari user yang sama menembus batas 4 tiket aktif
+            await tx.$executeRaw`
+              SELECT pg_advisory_xact_lock(hashtext(${userId} || ':' || ${data.eventId}))
+            `;
+
+            // B. Validasi status Event (harus PUBLISHED)
+            const event = await tx.event.findUnique({
+              where: { id: data.eventId },
+            });
+
+            if (!event || event.status !== 'PUBLISHED') {
+              throw new BadRequestError('Event tidak ditemukan atau belum dipublikasikan');
+            }
+
+            // C. Hitung total tiket aktif pembeli untuk event ini
+            // Tiket aktif = Order PAID + Order PENDING_PAYMENT yang belum lewat expiresAt
+            const activeCountRows: Array<{ total: bigint | number }> = await tx.$queryRaw`
+              SELECT COALESCE(SUM(oi.quantity), 0) AS total
+              FROM "Order" o
+              JOIN "OrderItem" oi ON o.id = oi."orderId"
+              WHERE o."userId" = ${userId}
+                AND o."eventId" = ${data.eventId}
+                AND (
+                  o.status = 'PAID'::"OrderStatus"
+                  OR (o.status = 'PENDING_PAYMENT'::"OrderStatus" AND o."expiresAt" > NOW())
+                )
+            `;
+
+            const currentActive = Number(activeCountRows[0]?.total || 0);
+
+            if (currentActive + totalRequested > 4) {
+              throw new UnprocessableEntityError(
+                `Batas maksimal pembelian adalah 4 tiket aktif per event. Anda saat ini memiliki ${currentActive} tiket aktif. Penambahan ${totalRequested} tiket melebihi batas.`,
+                'MAX_TICKETS_EXCEEDED'
+              );
+            }
+
+            // D. Urutkan item berdasarkan ticketTypeId untuk mencegah PostgreSQL deadlock
+            const sortedItems = [...data.items].sort((a, b) =>
+              a.ticketTypeId.localeCompare(b.ticketTypeId)
+            );
+
+            let totalAmount = new Prisma.Decimal(0);
+            const orderItemsToCreate: Array<{
+              ticketTypeId: string;
+              quantity: number;
+              unitPrice: Prisma.Decimal;
+            }> = [];
+
+            // E. Kurangi kuota dengan ATOMIC CONDITIONAL UPDATE (Raw SQL)
+            for (const item of sortedItems) {
+              // Ambil data harga dan nama tipe tiket
+              const ticketType = await tx.ticketType.findUnique({
+                where: { id: item.ticketTypeId },
+              });
+
+              if (!ticketType || ticketType.eventId !== data.eventId) {
+                throw new NotFoundError(`Tipe tiket ${item.ticketTypeId} tidak valid untuk event ini`);
+              }
+
+              // Update atomik: hanya berhasil jika reservedCount + quantity <= quota
+              const updateResult = await tx.$executeRaw`
+                UPDATE "TicketType"
+                SET "reservedCount" = "reservedCount" + ${item.quantity},
+                    "updatedAt" = NOW()
+                WHERE id = ${item.ticketTypeId}
+                  AND ("reservedCount" + ${item.quantity}) <= "quota"
+              `;
+
+              // Jika affected rows == 0, kuota tidak mencukupi → lempar 409 SOLD_OUT
+              if (updateResult === 0) {
+                throw new SoldOutError(
+                  `Kuota tiket '${ticketType.name}' telah habis atau tidak mencukupi jumlah yang diminta`
+                );
+              }
+
+              const itemPrice = new Prisma.Decimal(ticketType.price);
+              const subtotal = itemPrice.mul(item.quantity);
+              totalAmount = totalAmount.add(subtotal);
+
+              orderItemsToCreate.push({
+                ticketTypeId: item.ticketTypeId,
+                quantity: item.quantity,
+                unitPrice: itemPrice,
+              });
+            }
+
+            // F. Tetapkan waktu kedaluwarsa 15 menit
+            const now = new Date();
+            const expiresAt = new Date(now.getTime() + ENV.ORDER_EXPIRY_MINUTES * 60 * 1000);
+
+            // G. Buat record Order beserta OrderItem
+            const order = await tx.order.create({
+              data: {
+                userId,
+                eventId: data.eventId,
+                status: OrderStatus.PENDING_PAYMENT,
+                totalAmount,
+                expiresAt,
+                items: {
+                  create: orderItemsToCreate,
+                },
+              },
+              include: {
+                items: {
+                  include: {
+                    ticketType: true,
+                  },
+                },
+                event: true,
+              },
+            });
+
+            return order;
+          },
+          {
+            timeout: 15000,
+            isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
+          }
+        );
+      } catch (err: any) {
+        // Jika terjadi serialization failure / deadlock di PostgreSQL (code 40P01), coba lagi
+        if (err?.code === '40P01' && attempts < maxAttempts) {
+          await new Promise((res) => setTimeout(res, 50 * attempts));
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    throw new SoldOutError('Terjadi kegagalan konkurensi saat memesan tiket. Silakan coba kembali.');
   }
 
   /**
-   * Membatalkan pesanan yang belum dibayar dan mengembalikan kuota secara aman (Idempotent).
+   * Membatalkan pesanan (POST /api/orders/:id/cancel)
+   * Transisi atomik: UPDATE "Order" SET status='CANCELLED' WHERE status='PENDING_PAYMENT'
+   * Kuota HANYA dikembalikan jika update mengenai tepat 1 baris.
    */
   static async cancelOrder(userId: string, orderId: string, isAdmin = false) {
     return await prisma.$transaction(async (tx) => {
-      // Kunci baris Order dengan FOR UPDATE
-      const lockedOrders: Array<{
-        id: string;
-        userId: string;
-        status: OrderStatus;
-      }> = await tx.$queryRaw`
-        SELECT id, "userId", status
-        FROM "Order"
-        WHERE id = ${orderId}
-        FOR UPDATE
-      `;
-
-      if (lockedOrders.length === 0) {
-        throw new NotFoundError('Pesanan tidak ditemukan');
-      }
-
-      const order = lockedOrders[0];
-
-      if (!isAdmin && order.userId !== userId) {
-        throw new BadRequestError('Anda tidak memiliki akses untuk membatalkan pesanan ini');
-      }
-
-      if (order.status !== OrderStatus.PENDING_PAYMENT) {
-        throw new BadRequestError(`Pesanan tidak dapat dibatalkan karena berstatus ${order.status}`);
-      }
-
-      // Ambil items pesanan untuk memulihkan reservedQuota
-      const items = await tx.orderItem.findMany({
-        where: { orderId },
-      });
-
-      // Kembalikan kuota yang ditahan (reservedQuota - qty)
-      for (const item of items) {
-        await tx.$executeRaw`
-          UPDATE "TicketType"
-          SET "reservedQuota" = GREATEST(0, "reservedQuota" - ${item.quantity}),
-              "updatedAt" = NOW()
-          WHERE id = ${item.ticketTypeId}
-        `;
-      }
-
-      // Update status order menjadi CANCELLED
-      const updatedOrder = await tx.order.update({
+      // 1. Cek kepemilikan
+      const existingOrder = await tx.order.findUnique({
         where: { id: orderId },
-        data: { status: OrderStatus.CANCELLED },
         include: { items: true },
       });
 
-      return updatedOrder;
+      if (!existingOrder) {
+        throw new NotFoundError('Pesanan tidak ditemukan');
+      }
+
+      if (!isAdmin && existingOrder.userId !== userId) {
+        throw new BadRequestError('Anda tidak memiliki izin untuk membatalkan pesanan ini');
+      }
+
+      // 2. Transisi atomik status ke CANCELLED
+      const updateResult = await tx.$executeRaw`
+        UPDATE "Order"
+        SET status = 'CANCELLED'::"OrderStatus",
+            "cancelledAt" = NOW(),
+            "updatedAt" = NOW()
+        WHERE id = ${orderId}
+          AND status = 'PENDING_PAYMENT'::"OrderStatus"
+      `;
+
+      // Jika affected rows == 1, pulihkan reservedCount
+      if (updateResult === 1) {
+        for (const item of existingOrder.items) {
+          await tx.$executeRaw`
+            UPDATE "TicketType"
+            SET "reservedCount" = GREATEST(0, "reservedCount" - ${item.quantity}),
+                "updatedAt" = NOW()
+            WHERE id = ${item.ticketTypeId}
+          `;
+        }
+      } else {
+        // 0 baris: pesanan sudah bukan PENDING_PAYMENT (sudah dibatalkan, sudah dibayar, atau expired)
+        if (existingOrder.status === OrderStatus.CANCELLED) {
+          return existingOrder; // Idempoten: sudah dibatalkan
+        }
+        throw new ConflictError(
+          `Pesanan tidak dapat dibatalkan karena status saat ini adalah ${existingOrder.status}`
+        );
+      }
+
+      return await tx.order.findUnique({
+        where: { id: orderId },
+        include: { items: { include: { ticketType: true } }, event: true },
+      });
     });
   }
 
   /**
    * Mengambil riwayat pesanan milik user
    */
-  static async getUserOrders(userId: string) {
-    return await prisma.order.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        event: true,
-        items: {
-          include: {
-            ticketType: true,
+  static async getUserOrders(userId: string, options?: { page?: number; limit?: number }) {
+    const page = options?.page && options.page > 0 ? options.page : 1;
+    const limit = options?.limit && options.limit > 0 ? options.limit : 20;
+    const skip = (page - 1) * limit;
+
+    const [orders, total] = await Promise.all([
+      prisma.order.findMany({
+        where: { userId },
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          event: true,
+          items: {
+            include: {
+              ticketType: true,
+            },
           },
+          payment: true,
+          tickets: true,
         },
-        payment: true,
-        tickets: true,
+      }),
+      prisma.order.count({ where: { userId } }),
+    ]);
+
+    return {
+      items: orders,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
       },
-    });
+    };
   }
 
   /**
-   * Mengambil semua pesanan untuk admin dashboard
-   */
-  static async getAllOrders() {
-    return await prisma.order.findMany({
-      orderBy: { createdAt: 'desc' },
-      include: {
-        user: {
-          select: { id: true, email: true, fullName: true },
-        },
-        event: true,
-        items: {
-          include: {
-            ticketType: true,
-          },
-        },
-        payment: true,
-        tickets: true,
-      },
-    });
-  }
-
-  /**
-   * Mengambil detail satu pesanan berdasarkan ID
+   * Mengambil detail satu pesanan berdasarkan ID (dengan lazy-expiry)
    */
   static async getOrderById(userId: string, orderId: string, isAdmin = false) {
-    const order = await prisma.order.findUnique({
+    let order = await prisma.order.findUnique({
       where: { id: orderId },
       include: {
         event: true,
@@ -266,6 +307,65 @@ export class OrderService {
       throw new BadRequestError('Anda tidak memiliki akses ke pesanan ini');
     }
 
+    // Lazy expiry: jika waktu telah kedaluwarsa tapi status masih PENDING_PAYMENT
+    if (order.status === OrderStatus.PENDING_PAYMENT && new Date() > order.expiresAt) {
+      await expireOverdueOrders();
+      order = await prisma.order.findUnique({
+        where: { id: orderId },
+        include: {
+          event: true,
+          items: {
+            include: {
+              ticketType: true,
+            },
+          },
+          payment: true,
+          tickets: true,
+        },
+      });
+    }
+
     return order;
+  }
+
+  /**
+   * Mengambil semua pesanan untuk Admin
+   */
+  static async getAllOrders(options?: { page?: number; limit?: number }) {
+    const page = options?.page && options.page > 0 ? options.page : 1;
+    const limit = options?.limit && options.limit > 0 ? options.limit : 20;
+    const skip = (page - 1) * limit;
+
+    const [orders, total] = await Promise.all([
+      prisma.order.findMany({
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          user: {
+            select: { id: true, email: true, fullName: true },
+          },
+          event: true,
+          items: {
+            include: {
+              ticketType: true,
+            },
+          },
+          payment: true,
+          tickets: true,
+        },
+      }),
+      prisma.order.count(),
+    ]);
+
+    return {
+      items: orders,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 }

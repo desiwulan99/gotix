@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
-import { ShieldAlert } from 'lucide-react';
+import { Input } from '../components/ui/Input';
+import { Button } from '../components/ui/Button';
 
 export const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -12,6 +13,11 @@ export const LoginPage: React.FC = () => {
 
   const { login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Redirect target jika dialihkan dari rute terproteksi
+  const params = new URLSearchParams(location.search);
+  const redirectPath = params.get('redirect') || '/events';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -22,72 +28,79 @@ export const LoginPage: React.FC = () => {
       const res = await api.post('/auth/login', { email, password });
       const { user, token } = res.data.data;
       login(token, user);
-      navigate('/events');
+      navigate(redirectPath);
     } catch (err: any) {
-      setErrorMsg(err.message || 'Login gagal, periksa email dan password');
+      setErrorMsg(err.message || 'Login gagal, periksa email dan password Anda');
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="min-h-[80vh] flex items-center justify-center px-6 py-12 bg-ivory text-charcoal">
-      <div className="w-full max-w-md bg-white border border-soft-gray rounded-3xl p-8 sm:p-10 shadow-soft-card">
+    <div className="min-h-[85vh] flex items-center justify-center px-4 py-12 bg-obsidian text-ivory">
+      <div className="w-full max-w-md bg-charcoal border border-silver-mist/20 p-8 sm:p-10 relative text-left">
+        {/* Ornamen ganda sudut */}
+        <div className="absolute top-2 left-2 text-[8px] text-dusk-rose select-none">✦</div>
+        <div className="absolute top-2 right-2 text-[8px] text-dusk-rose select-none">✦</div>
+        <div className="absolute bottom-2 left-2 text-[8px] text-dusk-rose select-none">✦</div>
+        <div className="absolute bottom-2 right-2 text-[8px] text-dusk-rose select-none">✦</div>
+
         <div className="text-center mb-8">
-          <span className="text-2xl font-black font-cinzel tracking-widest text-charcoal">
-            GOTIX
-          </span>
-          <h2 className="text-sm font-bold font-cinzel text-muted-charcoal mt-2">
+          <Link to="/" className="inline-block">
+            <span className="font-unifraktur text-3xl tracking-widest text-ivory">
+              Gotix
+            </span>
+          </Link>
+          <h2 className="text-xs font-cinzel tracking-[0.2em] uppercase text-silver-mist/80 mt-2">
             MASUK KE AKUN ANDA
           </h2>
-          <p className="text-xs text-secondary mt-1 font-light">Discover the Extraordinary.</p>
+          <p className="text-[11px] font-cormorant italic text-silver-mist/60 mt-1">
+            Unlock the Unknown.
+          </p>
         </div>
 
         {errorMsg && (
-          <div className="mb-6 p-3.5 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-center gap-2">
-            <ShieldAlert className="w-4 h-4 text-red-500 shrink-0" />
-            <span>{errorMsg}</span>
+          <div className="mb-6 p-4 bg-royal-plum/40 border border-red-500/60 text-red-200 text-xs font-inter">
+            {errorMsg}
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4 text-xs">
-          <div>
-            <label className="block text-muted-charcoal mb-1.5 font-medium">Email</label>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="nama@email.com"
-              className="w-full bg-pearl border border-soft-gray rounded-xl px-4 py-3 text-charcoal placeholder-secondary/60 focus:outline-none focus:border-royal-mauve focus:bg-white transition-all shadow-xs"
-            />
-          </div>
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <Input
+            label="Alamat Email"
+            type="email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="nama@email.com"
+          />
 
-          <div>
-            <label className="block text-muted-charcoal mb-1.5 font-medium">Password</label>
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              className="w-full bg-pearl border border-soft-gray rounded-xl px-4 py-3 text-charcoal placeholder-secondary/60 focus:outline-none focus:border-royal-mauve focus:bg-white transition-all shadow-xs"
-            />
-          </div>
+          <Input
+            label="Kata Sandi"
+            type="password"
+            required
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="••••••••"
+          />
 
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="w-full py-3.5 rounded-xl bg-royal-mauve hover:bg-plum disabled:opacity-40 text-white text-xs font-semibold uppercase tracking-wider transition-all shadow-sm hover:shadow mt-3"
-          >
-            {isLoading ? 'Memproses...' : 'Masuk'}
-          </button>
+          <div className="pt-2">
+            <Button
+              type="submit"
+              variant="primary"
+              size="md"
+              className="w-full py-3"
+              isLoading={isLoading}
+            >
+              Masuk Sekarang
+            </Button>
+          </div>
         </form>
 
-        <div className="mt-8 text-center text-xs text-secondary border-t border-soft-gray/60 pt-5 font-light">
-          Belum punya akun?{' '}
-          <Link to="/register" className="text-plum hover:text-charcoal font-semibold">
-            Daftar Sekarang
+        <div className="mt-8 text-center text-xs font-inter text-silver-mist/60 border-t border-silver-mist/15 pt-5">
+          Belum memiliki akun?{' '}
+          <Link to="/daftar" className="font-cinzel text-dusk-rose hover:underline underline-offset-4 tracking-wider">
+            Daftar di sini
           </Link>
         </div>
       </div>

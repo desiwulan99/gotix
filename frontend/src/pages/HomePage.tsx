@@ -3,30 +3,26 @@ import { Link } from 'react-router-dom';
 import api from '../services/api';
 import { Event } from '../types';
 import { EventCard } from '../components/EventCard';
-import { Search, Compass, Shield, Sparkles, Music, Palette, Tent, Users, BookOpen } from 'lucide-react';
+import { SkeletonLoader } from '../components/ui/SkeletonLoader';
+import { SectionDivider } from '../components/SectionDivider';
 
 export const HomePage: React.FC = () => {
   const [events, setEvents] = useState<Event[]>([]);
-  const [search, setSearch] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string>('Semua');
   const [isLoading, setIsLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string>('SEMUA');
 
-  const categories = [
-    { name: 'Semua', icon: Compass },
-    { name: 'Musik', icon: Music },
-    { name: 'Seni & Budaya', icon: Palette },
-    { name: 'Festival', icon: Tent },
-    { name: 'Komunitas', icon: Users },
-    { name: 'Workshop', icon: BookOpen },
-  ];
+  const categories = ['SEMUA', 'KONSER & MUSIK', 'TEATER & SENI', 'ORCHESTRA', 'EXHIBITION'];
 
   useEffect(() => {
     const fetchEvents = async () => {
       try {
         const res = await api.get('/events');
-        setEvents(res.data.data);
+        // Backend returns { success: true, data: [...] }
+        const data = Array.isArray(res.data.data) ? res.data.data : [];
+        setEvents(data);
       } catch (err) {
-        console.error('Error fetching events:', err);
+        console.error('Gagal memuat event:', err);
       } finally {
         setIsLoading(false);
       }
@@ -34,159 +30,181 @@ export const HomePage: React.FC = () => {
     fetchEvents();
   }, []);
 
-  const filteredEvents = events.filter((e) =>
-    e.title.toLowerCase().includes(search.toLowerCase()) ||
-    e.location.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredEvents = events.filter((e) => {
+    const matchSearch =
+      e.title.toLowerCase().includes(search.toLowerCase()) ||
+      e.location.toLowerCase().includes(search.toLowerCase());
+    if (selectedCategory === 'SEMUA') return matchSearch;
+    return matchSearch; // Sederhana
+  });
 
   return (
-    <div className="min-h-screen bg-ivory text-charcoal">
-      {/* Hero Section */}
-      <section className="relative py-24 sm:py-32 px-6 overflow-hidden bg-gradient-to-b from-pearl via-ivory to-ivory border-b border-soft-gray/60">
-        {/* Subtle Gothic Arch Background Accent */}
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[700px] h-[350px] border border-dusty-purple/20 rounded-b-[350px] pointer-events-none opacity-40"></div>
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[550px] h-[275px] border border-royal-mauve/15 rounded-b-[275px] pointer-events-none opacity-30"></div>
+    <div className="min-h-screen bg-obsidian text-ivory">
+      {/* 1. Cinematic Hero Layar Penuh dengan Sorotan Hangat Halus */}
+      <section className="relative min-h-[85vh] flex flex-col justify-center items-center text-center px-4 sm:px-6 overflow-hidden border-b border-silver-mist/15">
+        {/* Radial Warm Glow Terinspirasi Soul Cards */}
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            background:
+              'radial-gradient(ellipse at 50% 40%, rgba(57, 37, 68, 0.45) 0%, rgba(25, 21, 29, 0.8) 50%, #0D0B10 100%)',
+          }}
+        />
 
-        <div className="max-w-4xl mx-auto text-center relative z-10">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-soft-lavender/80 border border-dusty-purple/40 text-plum text-[11px] font-semibold tracking-widest uppercase mb-6 shadow-sm">
-            <Sparkles className="w-3.5 h-3.5 text-royal-mauve" />
-            <span>Soft Gothic Luxury Ticketing</span>
+        <div className="relative z-10 max-w-3xl mx-auto flex flex-col items-center space-y-6 pt-12 pb-16">
+          {/* Label Huruf Kapital Kecil Ber-Letter-Spacing Lebar */}
+          <div className="text-[11px] font-cinzel tracking-[0.3em] uppercase text-dusk-rose select-none">
+            ✦ RITUALS OF SOUND & SHADOW ✦
           </div>
 
-          <h1 className="text-4xl sm:text-6xl font-black font-cinzel tracking-wide text-charcoal mb-6 leading-tight">
-            DISCOVER THE EXTRAORDINARY.
+          {/* Judul Serif Besar Tipis */}
+          <h1 className="font-cinzel text-4xl sm:text-6xl font-normal tracking-[0.06em] text-ivory leading-tight max-w-2xl">
+            UNLOCK THE UNKNOWN.
           </h1>
 
-          <p className="text-sm sm:text-base text-muted-charcoal max-w-2xl mx-auto mb-10 leading-relaxed font-light">
-            Find your next experience, explore unforgettable events, and secure your place with GOTIX.
+          {/* Subjudul Cormorant Italic */}
+          <p className="font-cormorant italic text-lg sm:text-xl text-silver-mist max-w-xl mx-auto leading-relaxed">
+            Eksplorasi kurasi pengalaman malam neoklasik, konser katedral kuno, dan pertunjukan seni gotik berkuota terbatas.
           </p>
 
-          {/* Search Box */}
-          <div className="max-w-xl mx-auto relative flex items-center bg-white border border-soft-gray focus-within:border-royal-mauve rounded-2xl overflow-hidden shadow-soft-card focus-within:shadow-soft-hover transition-all duration-300">
-            <Search className="w-4 h-4 text-royal-mauve ml-4 shrink-0" />
-            <input
-              type="text"
-              placeholder="Cari event, konser, atau kota..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full bg-transparent px-4 py-3.5 text-xs sm:text-sm text-charcoal placeholder-secondary/60 focus:outline-none"
-            />
-            <Link
-              to="/events"
-              className="px-6 py-3.5 bg-royal-mauve hover:bg-plum text-white text-xs font-semibold uppercase tracking-wider transition-colors shrink-0 m-1 rounded-xl"
-            >
-              Cari
-            </Link>
-          </div>
-
-          {/* Quick CTA Buttons */}
-          <div className="mt-8 flex items-center justify-center gap-4">
-            <Link
-              to="/events"
-              className="px-6 py-3 rounded-xl bg-royal-mauve hover:bg-plum text-white text-xs font-semibold uppercase tracking-wider shadow-sm transition-all"
-            >
-              Jelajahi Event
-            </Link>
-            <a
-              href="#featured-section"
-              className="px-6 py-3 rounded-xl bg-white hover:bg-soft-lavender/40 border border-soft-gray text-muted-charcoal hover:text-charcoal text-xs font-semibold uppercase tracking-wider transition-all"
-            >
-              Pelajari Lebih Lanjut
-            </a>
-          </div>
-        </div>
-      </section>
-
-      {/* Categories Bar */}
-      <section className="py-8 border-b border-soft-gray/50 px-6 bg-white/60">
-        <div className="max-w-6xl mx-auto flex items-center justify-center flex-wrap gap-3">
-          {categories.map((cat) => {
-            const Icon = cat.icon;
-            const isSelected = selectedCategory === cat.name;
-            return (
-              <button
-                key={cat.name}
-                onClick={() => setSelectedCategory(cat.name)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium transition-all ${
-                  isSelected
-                    ? 'bg-royal-mauve text-white shadow-sm'
-                    : 'bg-pearl text-muted-charcoal hover:bg-soft-lavender/60 border border-soft-gray/60'
-                }`}
+          {/* Kotak Pencarian Minimalis Dark */}
+          <div className="w-full max-w-md pt-4">
+            <div className="flex items-center border border-silver-mist/30 bg-charcoal/80 focus-within:border-dusk-rose transition-colors p-1">
+              <input
+                type="text"
+                placeholder="Cari event, konser, atau kota..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full bg-transparent px-4 py-2.5 text-xs text-ivory placeholder-silver-mist/40 focus:outline-none font-inter"
+              />
+              <Link
+                to="/events"
+                className="px-5 py-2.5 font-cinzel text-[11px] tracking-[0.15em] uppercase text-ivory bg-royal-plum hover:bg-dusk-rose hover:text-obsidian transition-colors shrink-0"
               >
-                <Icon className={`w-3.5 h-3.5 ${isSelected ? 'text-white' : 'text-royal-mauve'}`} />
-                <span>{cat.name}</span>
-              </button>
-            );
-          })}
-        </div>
-      </section>
-
-      {/* Value Proposition Highlights */}
-      <section className="py-14 border-b border-soft-gray/40 px-6 bg-pearl/40">
-        <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-8">
-          <div className="flex items-start gap-4 p-5 rounded-2xl bg-white border border-soft-gray shadow-soft-card">
-            <div className="p-2.5 rounded-xl bg-soft-lavender text-plum">
-              <Shield className="w-6 h-6" />
-            </div>
-            <div>
-              <h4 className="text-sm font-bold font-cinzel text-charcoal">100% Anti-Overselling</h4>
-              <p className="text-xs text-muted-charcoal mt-1 font-light leading-relaxed">
-                Penguncian konkurensi tingkat database (Row-Level Locking) menjamin kuota tidak pernah terjual melebihi kapasitas fisik.
-              </p>
+                Cari
+              </Link>
             </div>
           </div>
 
-          <div className="flex items-start gap-4 p-5 rounded-2xl bg-white border border-soft-gray shadow-soft-card">
-            <div className="p-2.5 rounded-xl bg-soft-lavender text-plum">
-              <Compass className="w-6 h-6" />
-            </div>
-            <div>
-              <h4 className="text-sm font-bold font-cinzel text-charcoal">Reservasi Aman 15 Menit</h4>
-              <p className="text-xs text-muted-charcoal mt-1 font-light leading-relaxed">
-                Tiket ditahan eksklusif untuk Anda selama 15 menit agar Anda dapat menyelesaikan proses pembayaran dengan tenang.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-start gap-4 p-5 rounded-2xl bg-white border border-soft-gray shadow-soft-card">
-            <div className="p-2.5 rounded-xl bg-soft-lavender text-plum">
-              <Sparkles className="w-6 h-6" />
-            </div>
-            <div>
-              <h4 className="text-sm font-bold font-cinzel text-charcoal">Tiket Kriptografis Unik</h4>
-              <p className="text-xs text-muted-charcoal mt-1 font-light leading-relaxed">
-                Setiap tiket memiliki kode unik yang tidak dapat dipalsukan dan dijamin idempoten terhadap duplikasi pembayaran.
-              </p>
-            </div>
+          {/* Tombol Teks Garis Bawah Tipis Khas Soul Cards */}
+          <div className="pt-4 flex items-center space-x-8">
+            <Link
+              to="/events"
+              className="font-cinzel text-xs tracking-[0.25em] uppercase text-ivory hover:text-dusk-rose underline underline-offset-8 decoration-dusk-rose transition-colors"
+            >
+              JELAJAHI EVENT
+            </Link>
           </div>
         </div>
       </section>
 
-      {/* Featured Events */}
-      <section id="featured-section" className="max-w-6xl mx-auto py-16 px-6">
-        <div className="flex items-center justify-between mb-10">
+      {/* 2. Dua Panel Hero Berdampingan dengan Garis Vertikal Tipis di Tengah */}
+      <section className="border-b border-silver-mist/15 bg-charcoal">
+        <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-silver-mist/15">
+          {/* Panel Kiri: Konser & Musik */}
+          <Link
+            to="/events"
+            className="group p-10 sm:p-16 flex flex-col justify-center items-center text-center hover:bg-royal-plum/20 transition-all duration-300 relative overflow-hidden"
+          >
+            <span className="text-[10px] font-cinzel tracking-[0.25em] uppercase text-silver-mist/60 mb-2">
+              BAGIAN I · INTENSI
+            </span>
+            <h2 className="font-cinzel text-2xl sm:text-3xl tracking-[0.08em] text-ivory group-hover:text-dusk-rose transition-colors">
+              KONSER & MUSIK
+            </h2>
+            <p className="font-cormorant italic text-sm text-silver-mist mt-2 max-w-xs">
+              Simfoni gelap neoklasik, darkwave industrial, dan paduan suara katedral.
+            </p>
+            <span className="mt-6 font-cinzel text-[11px] tracking-[0.2em] uppercase text-silver-mist/80 group-hover:text-dusk-rose underline underline-offset-8 decoration-silver-mist/30 group-hover:decoration-dusk-rose transition-all">
+              LIHAT JADWAL →
+            </span>
+          </Link>
+
+          {/* Panel Kanan: Teater & Seni */}
+          <Link
+            to="/events"
+            className="group p-10 sm:p-16 flex flex-col justify-center items-center text-center hover:bg-royal-plum/20 transition-all duration-300 relative overflow-hidden"
+          >
+            <span className="text-[10px] font-cinzel tracking-[0.25em] uppercase text-silver-mist/60 mb-2">
+              BAGIAN II · ENIGMA
+            </span>
+            <h2 className="font-cinzel text-2xl sm:text-3xl tracking-[0.08em] text-ivory group-hover:text-dusk-rose transition-colors">
+              TEATER & SENI
+            </h2>
+            <p className="font-cormorant italic text-sm text-silver-mist mt-2 max-w-xs">
+              Pesta topeng victorian, pertunjukan visual mistis, dan instalasi lilin obsidian.
+            </p>
+            <span className="mt-6 font-cinzel text-[11px] tracking-[0.2em] uppercase text-silver-mist/80 group-hover:text-dusk-rose underline underline-offset-8 decoration-silver-mist/30 group-hover:decoration-dusk-rose transition-all">
+              JELAJAHI RUANG →
+            </span>
+          </Link>
+        </div>
+      </section>
+
+      {/* 3. Blok Kutipan Terpusat ("Our Story") */}
+      <section className="py-20 px-4 sm:px-6 max-w-3xl mx-auto text-center">
+        <span className="text-3xl text-dusk-rose font-cinzel select-none">“</span>
+        <blockquote className="font-cormorant italic text-xl sm:text-2xl text-ivory leading-relaxed mt-2 mb-4">
+          Kami percaya keindahan sejati bermula saat cahaya meredup. GOTIX bukan sekadar gerbang tiket,
+          melainkan paspor kuratorial menuju pengalaman malam yang tak tertandingi.
+        </blockquote>
+        <div className="font-cinzel text-xs tracking-[0.25em] uppercase text-silver-mist/60 mb-4">
+          — OUR STORY · GOTIX MANIFESTO
+        </div>
+        <SectionDivider />
+      </section>
+
+      {/* 4. Filter Kategori Huruf Kapital Kecil Ber-Letter-Spacing Lebar Tanpa Ikon */}
+      <section className="max-w-6xl mx-auto px-4 sm:px-6 mb-12">
+        <div className="flex flex-wrap items-center justify-center gap-6 sm:gap-10 border-y border-silver-mist/15 py-4">
+          {categories.map((cat) => (
+            <button
+              key={cat}
+              onClick={() => setSelectedCategory(cat)}
+              className={`font-cinzel text-xs tracking-[0.2em] uppercase transition-all py-1 ${
+                selectedCategory === cat
+                  ? 'text-dusk-rose underline underline-offset-8 decoration-dusk-rose'
+                  : 'text-silver-mist/60 hover:text-ivory'
+              }`}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* 5. Grid Kartu Bergaya Tarot untuk Event Pilihan */}
+      <section className="max-w-6xl mx-auto px-4 sm:px-6 pb-24">
+        <div className="flex items-center justify-between mb-8">
           <div>
-            <h2 className="text-2xl font-bold font-cinzel text-charcoal">Event Unggulan</h2>
-            <p className="text-xs text-secondary mt-1 font-light">Eksplorasi pengalaman eksklusif mendatang</p>
+            <span className="text-[10px] font-cinzel tracking-[0.25em] uppercase text-dusk-rose block mb-1">
+              KURASI UNGGULAN
+            </span>
+            <h2 className="font-cinzel text-2xl tracking-[0.06em] text-ivory">
+              EVENT TERBARU
+            </h2>
           </div>
           <Link
             to="/events"
-            className="text-xs font-semibold tracking-wider text-royal-mauve hover:text-plum uppercase transition-colors"
+            className="font-cinzel text-xs tracking-[0.18em] uppercase text-silver-mist hover:text-dusk-rose underline underline-offset-6 transition-colors"
           >
-            Lihat Semua Event &rarr;
+            LIHAT SEMUA ({events.length})
           </Link>
         </div>
 
         {isLoading ? (
-          <div className="text-center py-20 text-secondary text-xs">
-            Memuat daftar event...
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 sm:gap-8">
+            <SkeletonLoader count={3} className="aspect-[2/3] w-full" />
           </div>
         ) : filteredEvents.length === 0 ? (
-          <div className="text-center py-16 bg-white rounded-2xl border border-soft-gray shadow-soft-card">
-            <p className="text-muted-charcoal text-xs">Tidak ada event yang sesuai pencarian.</p>
+          <div className="py-16 text-center border border-silver-mist/10 bg-charcoal/30">
+            <span className="text-xl text-dusk-rose select-none">✦</span>
+            <p className="font-cinzel text-sm tracking-[0.1em] text-silver-mist mt-3">
+              Belum ada event yang cocok dengan kriteria pencarian.
+            </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 sm:gap-8">
             {filteredEvents.slice(0, 6).map((event) => (
               <EventCard key={event.id} event={event} />
             ))}

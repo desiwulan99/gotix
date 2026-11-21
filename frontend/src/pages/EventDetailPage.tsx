@@ -3,7 +3,9 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import api from '../services/api';
 import { Event } from '../types';
 import { useAuth } from '../context/AuthContext';
-import { Calendar, MapPin, ShieldAlert, Plus, Minus, ArrowLeft, Shield, Sparkles } from 'lucide-react';
+import { Button } from '../components/ui/Button';
+import { EventPoster } from '../components/EventPoster';
+import { maxSelectable, calcTotal, formatRupiah } from '../lib/ticketRules';
 
 export const EventDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -22,7 +24,7 @@ export const EventDetailPage: React.FC = () => {
         const res = await api.get(`/events/${id}`);
         setEvent(res.data.data);
       } catch (err: any) {
-        setErrorMsg(err.message || 'Gagal memuat event');
+        setErrorMsg(err.message || 'Gagal memuat detail event');
       } finally {
         setIsLoading(false);
       }
@@ -30,50 +32,69 @@ export const EventDetailPage: React.FC = () => {
     fetchEvent();
   }, [id]);
 
-  const handleQuantityChange = (ticketTypeId: string, delta: number, remaining: number) => {
-    const current = quantities[ticketTypeId] || 0;
-    const nextVal = current + delta;
+  if (isLoading) {
+    return (
+      <div className="max-w-5xl mx-auto py-16 px-4 text-center">
+        <div className="animate-pulse text-dusk-rose text-2xl select-none mb-3">✦</div>
+        <p className="font-cinzel text-xs tracking-[0.2em] uppercase text-silver-mist">
+          Memuat detail event...
+        </p>
+      </div>
+    );
+  }
 
-    if (nextVal < 0) return;
-    if (nextVal > remaining) {
-      alert(`Sisa kuota hanya ${remaining} tiket`);
-      return;
-    }
+  if (!event) {
+    return (
+      <div className="max-w-md mx-auto py-20 px-4 text-center">
+        <h2 className="font-cinzel text-xl text-ivory mb-4">Event Tidak Ditemukan</h2>
+        <Link to="/events" className="font-cinzel text-xs tracking-[0.2em] text-dusk-rose underline">
+          KEMBALI KE KATALOG EVENT
+        </Link>
+      </div>
+    );
+  }
 
-    const totalAll = Object.entries(quantities).reduce((sum, [key, val]) => {
-      return sum + (key === ticketTypeId ? nextVal : val);
+  // Hitung total tiket yang sedang dipilih
+  const totalTicketsSelected = Object.values(quantities).reduce((a, b) => a + b, 0);
+
+  // Hitung tiket yang dipilih pada tipe lain
+  const getSelectedInOtherTypes = (currentTypeId: string) => {
+    return Object.entries(quantities).reduce((sum, [tId, qty]) => {
+      return sum + (tId === currentTypeId ? 0 : qty);
     }, 0);
+  };
 
-    if (totalAll > 4) {
-      alert('Maksimal pemesanan adalah 4 tiket dalam satu transaksi!');
-      return;
-    }
+  const handleStepperChange = (ticketTypeId: string, delta: number, remaining: number) => {
+    const currentQty = quantities[ticketTypeId] || 0;
+    const selectedInOthers = getSelectedInOtherTypes(ticketTypeId);
+    const maxAllowed = maxSelectable(remaining, selectedInOthers, 0);
+
+    const targetQty = currentQty + delta;
+    if (targetQty < 0) return;
+    if (targetQty > maxAllowed) return;
 
     setQuantities({
       ...quantities,
-      [ticketTypeId]: nextVal,
+      [ticketTypeId]: targetQty,
     });
+    setErrorMsg(null);
   };
 
-  const totalTicketsSelected = Object.values(quantities).reduce((a, b) => a + b, 0);
-
-  const calculateTotalPrice = () => {
-    if (!event) return 0;
-    return event.ticketTypes.reduce((total, tt) => {
-      const qty = quantities[tt.id] || 0;
-      return total + qty * tt.price;
-    }, 0);
-  };
+  const totalPrice = calcTotal(
+    event.ticketTypes.map((tt) => ({
+      quantity: quantities[tt.id] || 0,
+      unitPrice: Number(tt.price),
+    }))
+  );
 
   const handleReserve = async () => {
     if (!user) {
-      alert('Silakan login terlebih dahulu untuk memesan tiket');
-      navigate('/login');
+      navigate(`/masuk?redirect=${encodeURIComponent(`/events/${event.id}`)}`);
       return;
     }
 
     if (totalTicketsSelected === 0) {
-      alert('Pilih minimal 1 tiket');
+      setErrorMsg('Silakan pilih minimal 1 tiket untuk melanjutkan pemesanan.');
       return;
     }
 
@@ -86,31 +107,25 @@ export const EventDetailPage: React.FC = () => {
 
     try {
       const res = await api.post('/orders', {
-        eventId: event?.id,
+        eventId: event.id,
         items,
       });
       const order = res.data.data;
       navigate(`/checkout/${order.id}`);
     } catch (err: any) {
       setErrorMsg(err.message || 'Gagal membuat reservasi tiket');
+      // Ambil ulang data event agar status kuota terbaru selalu sinkron dengan server
+      try {
+        const refreshed = await api.get(`/events/${id}`);
+        setEvent(refreshed.data.data);
+      } catch (_e) {}
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  if (isLoading) {
-    return <div className="text-center py-24 text-secondary text-xs">Memuat detail event...</div>;
-  }
-
-  if (!event) {
-    return (
-      <div className="text-center py-24">
-        <p className="text-red-500 text-xs">Event tidak ditemukan.</p>
-      </div>
-    );
-  }
-
-  const formattedDate = new Date(event.eventDate).toLocaleDateString('id-ID', {
+  const eventDateObj = new Date(event.startsAt || event.eventDate || Date.now());
+  const dateFormatted = eventDateObj.toLocaleDateString('id-ID', {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
@@ -118,186 +133,192 @@ export const EventDetailPage: React.FC = () => {
   });
 
   return (
-    <div className="max-w-6xl mx-auto py-10 px-6 min-h-screen bg-ivory text-charcoal">
-      {/* Back Link */}
-      <Link
-        to="/events"
-        className="inline-flex items-center gap-1.5 text-xs text-muted-charcoal hover:text-plum font-medium mb-6 transition-colors"
-      >
-        <ArrowLeft className="w-4 h-4" />
-        <span>Kembali ke Katalog Event</span>
-      </Link>
-
-      {/* Banner Card */}
-      <div className="relative h-72 sm:h-96 w-full rounded-3xl overflow-hidden border border-soft-gray bg-white shadow-soft-card">
-        <img
-          src={
-            event.imageUrl ||
-            'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?q=80&w=1200&auto=format&fit=crop'
-          }
-          alt={event.title}
-          className="w-full h-full object-cover"
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-charcoal/80 via-charcoal/20 to-transparent"></div>
-
-        <div className="absolute bottom-6 left-6 right-6">
-          <span className="px-3 py-1 rounded-full bg-white/90 text-plum text-[10px] font-bold tracking-wider uppercase mb-3 inline-block backdrop-blur-sm border border-dusty-purple/30 shadow-sm">
-            {event.status}
-          </span>
-          <h1 className="text-2xl sm:text-4xl font-black font-cinzel text-white tracking-wide">
-            {event.title}
-          </h1>
-          <div className="flex flex-wrap items-center gap-6 mt-3 text-xs text-silver-mist">
-            <div className="flex items-center gap-1.5">
-              <Calendar className="w-4 h-4 text-dusty-purple" />
-              <span>{formattedDate}</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <MapPin className="w-4 h-4 text-dusty-purple" />
-              <span>{event.location}</span>
-            </div>
-          </div>
-        </div>
+    <div className="max-w-6xl mx-auto py-12 px-4 sm:px-6 min-h-screen bg-obsidian text-ivory">
+      {/* Tautan Kembali */}
+      <div className="mb-8 text-left">
+        <Link
+          to="/events"
+          className="font-cinzel text-xs tracking-[0.2em] uppercase text-silver-mist/70 hover:text-dusk-rose transition-colors inline-flex items-center space-x-2"
+        >
+          <span>←</span>
+          <span>Kembali ke Daftar Event</span>
+        </Link>
       </div>
 
-      {errorMsg && (
-        <div className="mt-6 p-4 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-center gap-2">
-          <ShieldAlert className="w-4 h-4 shrink-0 text-red-500" />
-          <span>{errorMsg}</span>
-        </div>
-      )}
-
-      {/* Konten & Pemilihan Tiket */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-10 mt-10">
-        {/* Deskripsi */}
-        <div className="lg:col-span-2">
-          <h2 className="text-lg font-bold font-cinzel text-charcoal border-b border-soft-gray pb-3 mb-4">
-            Tentang Pertunjukan
-          </h2>
-          <p className="text-xs sm:text-sm text-muted-charcoal leading-relaxed whitespace-pre-line font-light">
-            {event.description}
-          </p>
-
-          <div className="mt-8 p-6 rounded-2xl bg-white border border-soft-gray shadow-soft-card">
-            <div className="flex items-center gap-2 mb-3">
-              <Shield className="w-4 h-4 text-royal-mauve" />
-              <h4 className="text-xs font-bold text-charcoal uppercase tracking-wider font-cinzel">
-                Aturan Pemesanan Tiket GOTIX
-              </h4>
-            </div>
-            <ul className="text-xs text-muted-charcoal/80 space-y-2 font-light list-disc list-inside">
-              <li>Maksimal pembelian 4 tiket dalam satu pesanan.</li>
-              <li>Satu akun maksimal memiliki 4 tiket untuk event ini (gabungan pesanan aktif & lunas).</li>
-              <li>Tiket akan ditahan (*held*) selama 15 menit setelah tombol reservasi ditekan.</li>
-              <li>Jika tidak dibayar dalam 15 menit, kuota otomatis kembali ke sistem secara idempoten.</li>
-            </ul>
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
+        {/* Kolom Kiri: Poster Kartu Tarot Besar */}
+        <div className="lg:col-span-5 flex flex-col items-center">
+          <div className="w-full max-w-sm sticky top-24">
+            <EventPoster id={event.id} title={event.title} />
           </div>
         </div>
 
-        {/* Pilihan Tiket & Checkout Card */}
-        <div className="lg:col-span-1">
-          <div className="bg-white border border-soft-gray rounded-3xl p-6 shadow-soft-card sticky top-24">
-            <div className="flex items-center justify-between pb-4 border-b border-soft-gray mb-5">
-              <h3 className="text-sm font-bold font-cinzel text-charcoal">
-                Pilih Tipe Tiket
-              </h3>
-              <Sparkles className="w-4 h-4 text-royal-mauve" />
+        {/* Kolom Kanan: Deskripsi, Tipe Tiket, dan Pemesanan */}
+        <div className="lg:col-span-7 flex flex-col justify-between text-left space-y-8">
+          <div>
+            <span className="text-[10px] uppercase tracking-[0.25em] text-dusk-rose font-cinzel block mb-1">
+              ✦ CURATED EXPERIENCE ✦
+            </span>
+            <h1 className="font-cinzel text-2xl sm:text-4xl text-ivory tracking-[0.04em] leading-tight mb-4">
+              {event.title}
+            </h1>
+
+            {/* Waktu & Lokasi */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 py-4 border-y border-silver-mist/15 text-xs text-silver-mist/90">
+              <div>
+                <span className="block text-[10px] uppercase font-cinzel text-silver-mist/50 tracking-wider">
+                  Waktu Pelaksanaan
+                </span>
+                <span className="font-inter font-medium text-ivory">{dateFormatted}</span>
+              </div>
+              <div>
+                <span className="block text-[10px] uppercase font-cinzel text-silver-mist/50 tracking-wider">
+                  Lokasi
+                </span>
+                <span className="font-inter font-medium text-ivory">{event.location}</span>
+              </div>
             </div>
 
-            <div className="space-y-4 mb-6">
+            {/* Deskripsi Event */}
+            <div className="pt-6">
+              <h3 className="font-cinzel text-xs tracking-[0.2em] uppercase text-silver-mist/60 mb-2">
+                DESKRIPSI
+              </h3>
+              <p className="font-inter text-sm text-silver-mist/80 leading-relaxed">
+                {event.description}
+              </p>
+            </div>
+          </div>
+
+          {/* Bagian Pilihan Tiket (Regular / VIP) */}
+          <div className="space-y-6 pt-4 border-t border-silver-mist/15">
+            <div>
+              <h2 className="font-cinzel text-base tracking-[0.1em] text-ivory">
+                PILIHAN TIKET
+              </h2>
+              <p className="text-xs text-silver-mist/60 font-inter mt-0.5">
+                Maksimal 4 tiket aktif per pemesan untuk setiap event.
+              </p>
+            </div>
+
+            {/* Daftar Tipe Tiket */}
+            <div className="space-y-4">
               {event.ticketTypes.map((tt) => {
-                const isVIP = tt.name.toUpperCase().includes('VIP');
+                const remaining = tt.remaining ?? (tt.quota - tt.reservedCount);
+                const isSoldOut = remaining <= 0;
+                const currentQty = quantities[tt.id] || 0;
+                const selectedInOthers = getSelectedInOtherTypes(tt.id);
+                const maxAllowed = maxSelectable(remaining, selectedInOthers, 0);
+
+                // Progress bar sisa kuota tipis
+                const percentRemaining = tt.quota > 0 ? (remaining / tt.quota) * 100 : 0;
+
                 return (
                   <div
                     key={tt.id}
-                    className={`p-4 rounded-2xl border transition-all ${
-                      tt.isSoldOut
-                        ? 'bg-pearl/50 border-soft-gray opacity-60'
-                        : isVIP
-                        ? 'bg-soft-lavender/30 border-dusty-purple/60 hover:border-royal-mauve'
-                        : 'bg-pearl/30 border-soft-gray hover:border-dusty-purple/60'
+                    className={`p-5 bg-charcoal border transition-all ${
+                      currentQty > 0
+                        ? 'border-dusk-rose/80 shadow-gothic-card'
+                        : 'border-silver-mist/20 hover:border-silver-mist/40'
                     }`}
                   >
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <h4 className="text-sm font-bold text-charcoal font-cinzel flex items-center gap-2">
-                          <span>{tt.name}</span>
-                          {isVIP && (
-                            <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full bg-dusty-purple/40 text-plum">
-                              VIP
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      {/* Info Tipe Tiket */}
+                      <div className="space-y-1">
+                        <h4 className="font-cinzel text-base text-ivory tracking-wider">
+                          {tt.name}
+                        </h4>
+                        <div className="font-inter font-semibold text-lg text-dusk-rose">
+                          {formatRupiah(Number(tt.price))}
+                        </div>
+
+                        {/* Status Sisa Kuota berupa angka */}
+                        <div className="text-xs font-inter text-silver-mist/70 pt-1 flex items-center space-x-2">
+                          {isSoldOut ? (
+                            <span className="text-dusk-rose font-cinzel text-[11px] tracking-widest">
+                              HABIS TERJUAL (0/{tt.quota})
+                            </span>
+                          ) : (
+                            <span>
+                              Sisa kuota:{' '}
+                              <strong className="text-ivory font-semibold">{remaining}</strong> dari{' '}
+                              {tt.quota}
                             </span>
                           )}
-                        </h4>
-                        <p className="text-xs font-semibold text-plum mt-1">
-                          Rp {tt.price.toLocaleString('id-ID')}
-                        </p>
-                      </div>
-                      <span
-                        className={`text-[10px] uppercase font-bold px-2.5 py-0.5 rounded-full ${
-                          tt.isSoldOut
-                            ? 'bg-red-50 text-red-600 border border-red-200'
-                            : 'bg-white text-muted-charcoal border border-soft-gray shadow-xs'
-                        }`}
-                      >
-                        {tt.isSoldOut ? 'Habis' : `Sisa ${tt.remainingQuota}`}
-                      </span>
-                    </div>
+                        </div>
 
-                    {!tt.isSoldOut && (
-                      <div className="mt-4 flex items-center justify-between pt-3 border-t border-soft-gray/50">
-                        <span className="text-xs text-secondary font-medium">Jumlah</span>
-                        <div className="flex items-center gap-3">
-                          <button
-                            onClick={() => handleQuantityChange(tt.id, -1, tt.remainingQuota)}
-                            disabled={!quantities[tt.id]}
-                            className="w-7 h-7 rounded-lg bg-white border border-soft-gray hover:border-dusty-purple disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center text-charcoal text-xs shadow-xs transition-colors"
-                          >
-                            <Minus className="w-3.5 h-3.5" />
-                          </button>
-                          <span className="text-xs font-bold w-4 text-center text-charcoal">
-                            {quantities[tt.id] || 0}
-                          </span>
-                          <button
-                            onClick={() => handleQuantityChange(tt.id, 1, tt.remainingQuota)}
-                            disabled={
-                              totalTicketsSelected >= 4 ||
-                              (quantities[tt.id] || 0) >= tt.remainingQuota
-                            }
-                            className="w-7 h-7 rounded-lg bg-white border border-soft-gray hover:border-dusty-purple disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center text-charcoal text-xs shadow-xs transition-colors"
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                          </button>
+                        {/* Progress Bar Tipis Sisa Kuota */}
+                        <div className="w-40 h-[2px] bg-obsidian overflow-hidden mt-1.5">
+                          <div
+                            className={`h-full transition-all duration-300 ${
+                              percentRemaining < 20 ? 'bg-dusk-rose' : 'bg-muted-violet'
+                            }`}
+                            style={{ width: `${percentRemaining}%` }}
+                          />
                         </div>
                       </div>
-                    )}
+
+                      {/* Stepper Jumlah Tiket (Target Sentuh Minimal 40px) */}
+                      <div className="flex items-center space-x-3">
+                        <button
+                          type="button"
+                          onClick={() => handleStepperChange(tt.id, -1, remaining)}
+                          disabled={currentQty <= 0 || isSoldOut}
+                          className="w-10 h-10 flex items-center justify-center bg-obsidian border border-silver-mist/30 text-ivory hover:border-dusk-rose disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-base font-inter"
+                          aria-label={`Kurangi ${tt.name}`}
+                        >
+                          −
+                        </button>
+
+                        <span className="w-8 text-center font-inter font-bold text-base text-ivory">
+                          {currentQty}
+                        </span>
+
+                        <button
+                          type="button"
+                          onClick={() => handleStepperChange(tt.id, 1, remaining)}
+                          disabled={currentQty >= maxAllowed || isSoldOut}
+                          className="w-10 h-10 flex items-center justify-center bg-obsidian border border-silver-mist/30 text-ivory hover:border-dusk-rose disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-base font-inter"
+                          aria-label={`Tambah ${tt.name}`}
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 );
               })}
             </div>
 
-            {/* Total Ringkasan */}
-            <div className="border-t border-soft-gray pt-4 mb-6">
-              <div className="flex justify-between text-xs text-secondary mb-1.5 font-light">
-                <span>Total Tiket Dipilih:</span>
-                <span className="font-semibold text-charcoal">
-                  {totalTicketsSelected} dari maks 4
-                </span>
+            {/* Error Message Box dari Backend */}
+            {errorMsg && (
+              <div className="p-4 bg-royal-plum/30 border border-red-500/50 text-red-200 text-xs font-inter">
+                {errorMsg}
               </div>
-              <div className="flex justify-between items-center text-sm font-bold text-charcoal font-cinzel">
-                <span>Total Harga:</span>
-                <span className="text-base text-plum">
-                  Rp {calculateTotalPrice().toLocaleString('id-ID')}
-                </span>
-              </div>
-            </div>
+            )}
 
-            <button
-              onClick={handleReserve}
-              disabled={isSubmitting || totalTicketsSelected === 0}
-              className="w-full py-3.5 rounded-xl bg-royal-mauve hover:bg-plum disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold uppercase tracking-wider transition-all shadow-sm hover:shadow"
-            >
-              {isSubmitting ? 'Memproses Reservasi...' : 'Pesan Tiket Sekarang'}
-            </button>
+            {/* Ringkasan Harga & Tombol Pesan */}
+            <div className="p-6 bg-charcoal border border-silver-mist/20 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
+              <div>
+                <span className="block text-[11px] font-cinzel uppercase tracking-wider text-silver-mist/60">
+                  Total Pembelian ({totalTicketsSelected} tiket)
+                </span>
+                <span className="font-inter font-bold text-2xl text-ivory">
+                  {formatRupiah(totalPrice)}
+                </span>
+              </div>
+
+              <Button
+                variant="primary"
+                size="lg"
+                onClick={handleReserve}
+                disabled={totalTicketsSelected === 0 || isSubmitting}
+                isLoading={isSubmitting}
+                className="w-full sm:w-auto px-10"
+              >
+                Pesan Tiket Sekarang
+              </Button>
+            </div>
           </div>
         </div>
       </div>
