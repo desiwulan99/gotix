@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
-import fs from 'fs';
-import path from 'path';
+import * as fs from 'fs';
+import * as path from 'path';
 import { createApp } from '../../src/app';
 import { prisma } from '../../src/config/prisma';
 import { cleanDatabase, restoreSeedData } from '../setup';
-import jwt from 'jsonwebtoken';
+import * as jwt from 'jsonwebtoken';
 import { ENV } from '../../src/config/env';
 
 const app = createApp();
@@ -77,11 +77,6 @@ describe('CONCURRENCY STRESS TEST — 200 Requests for 100 Quota', () => {
     }
     console.log('[CONCURRENCY TEST SETUP] 200 user siap menembakkan request.');
   }, 60000);
-
-  afterAll(async () => {
-    await cleanDatabase();
-    await prisma.$disconnect();
-  });
 
   it('TEST 7: Tepat 100 request berhasil (201), tepat 100 request gagal (409), reservedCount = 100, tidak ada negatif', async () => {
     console.log('[CONCURRENCY EXECUTION] Meluncurkan 200 request bersamaan...');

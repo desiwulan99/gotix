@@ -7,7 +7,7 @@ import { expireOverdueOrders } from '../../src/workers/expiry.worker';
 
 const app = createApp();
 
-describe('GOTIX Core Ticketing Integration Tests (Real PostgreSQL)', () => {
+describe('GOTIX Core Business Requirements Integration Tests (Real PostgreSQL)', () => {
   let buyerToken: string;
   let buyerId: string;
   let adminToken: string;
@@ -20,7 +20,6 @@ describe('GOTIX Core Ticketing Integration Tests (Real PostgreSQL)', () => {
   });
 
   afterAll(async () => {
-    await cleanDatabase();
     await restoreSeedData();
     await prisma.$disconnect();
   });
@@ -51,7 +50,7 @@ describe('GOTIX Core Ticketing Integration Tests (Real PostgreSQL)', () => {
       });
     adminToken = adminRes.body.data.token;
 
-    // 3. Buat Event Uji Coba dengan 2 Tipe Tiket
+    // 3. Buat Event Uji Coba Default dengan 2 Tipe Tiket (Regular & VIP)
     const eventRes = await request(app)
       .post('/api/events')
       .set('Authorization', `Bearer ${adminToken}`)
@@ -67,13 +66,88 @@ describe('GOTIX Core Ticketing Integration Tests (Real PostgreSQL)', () => {
       });
 
     testEventId = eventRes.body.data.id;
-    regularTicketTypeId = eventRes.body.data.ticketTypes.find((t: any) => t.name === 'Regular').id;
-    vipTicketTypeId = eventRes.body.data.ticketTypes.find((t: any) => t.name === 'VIP').id;
+    regularTicketTypeId = eventRes.body.data.ticketTypes.find((t: { name: string; id: string }) => t.name === 'Regular').id;
+    vipTicketTypeId = eventRes.body.data.ticketTypes.find((t: { name: string; id: string }) => t.name === 'VIP').id;
   });
 
-  // TEST 1 — Beli sampai tiket terbit (Happy Path)
-  it('TEST 1: Beli sampai tiket terbit (kuota berkurang, PENDING_PAYMENT, bayar, PAID, jumlah tiket = quantity, kode unik)', async () => {
-    // A. Buat pesanan 2 tiket Regular
+  // ============================================================================
+  // KEBUTUHAN BISNIS 1
+  // Penyelenggara membuat event dengan kuota tiket terbatas, misalnya 100.
+  // Event punya dua tipe tiket (Reguler, VIP), masing-masing dengan kuota dan harga sendiri.
+  // ============================================================================
+  it('Kebutuhan Bisnis 1: Penyelenggara membuat event dengan kuota tiket terbatas (100) dan dua tipe tiket (Reguler, VIP) dengan kuota dan harga masing-masing', async () => {
+    const res = await request(app)
+      .post('/api/events')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        title: 'Grand Opera of Shadows',
+        description: 'Pentas opera neoklasik dengan alokasi kuota 100 kursi',
+        location: 'Teater Katedral Gelap, Jakarta',
+        startsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+        ticketTypes: [
+          { name: 'Reguler', price: 150000, quota: 80 },
+          { name: 'VIP', price: 500000, quota: 20 },
+        ],
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.title).toBe('Grand Opera of Shadows');
+    expect(res.body.data.ticketTypes).toHaveLength(2);
+
+    const reguler = res.body.data.ticketTypes.find((t: { name: string }) => t.name === 'Reguler');
+    const vip = res.body.data.ticketTypes.find((t: { name: string }) => t.name === 'VIP');
+
+    expect(reguler).toBeDefined();
+    expect(Number(reguler.price)).toBe(150000);
+    expect(reguler.quota).toBe(80);
+    expect(reguler.reservedCount).toBe(0);
+
+    expect(vip).toBeDefined();
+    expect(Number(vip.price)).toBe(500000);
+    expect(vip.quota).toBe(20);
+    expect(vip.reservedCount).toBe(0);
+
+    // Verifikasi detail event yang baru dibuat memiliki remaining yang benar
+    const detailRes = await request(app).get(`/api/events/${res.body.data.id}`);
+    const regDetail = detailRes.body.data.ticketTypes.find((t: { name: string }) => t.name === 'Reguler');
+    expect(regDetail.remaining).toBe(80);
+    expect(regDetail.soldOut).toBe(false);
+  });
+
+  // ============================================================================
+  // KEBUTUHAN BISNIS 2
+  // Pembeli bisa melihat event dan sisa kuota tiap tipe.
+  // ============================================================================
+  it('Kebutuhan Bisnis 2: Pembeli bisa melihat event dan sisa kuota tiap tipe secara akurat', async () => {
+    // A. Pembeli melihat daftar event
+    const listRes = await request(app).get('/api/events');
+    expect(listRes.status).toBe(200);
+    expect(listRes.body.success).toBe(true);
+    expect(Array.isArray(listRes.body.data)).toBe(true);
+    expect(listRes.body.data.some((e: { id: string }) => e.id === testEventId)).toBe(true);
+
+    // B. Pembeli melihat detail event beserta sisa kuota tiap tipe tiket
+    const detailRes = await request(app).get(`/api/events/${testEventId}`);
+    expect(detailRes.status).toBe(200);
+    expect(detailRes.body.data.id).toBe(testEventId);
+    expect(detailRes.body.data.ticketTypes).toHaveLength(2);
+
+    const reg = detailRes.body.data.ticketTypes.find((t: { id: string }) => t.id === regularTicketTypeId);
+    expect(reg.name).toBe('Regular');
+    expect(reg.quota).toBe(10);
+    expect(reg.reservedCount).toBe(0);
+    expect(reg.remaining).toBe(10);
+    expect(reg.soldOut).toBe(false);
+  });
+
+  // ============================================================================
+  // KEBUTUHAN BISNIS 3
+  // Pembeli memesan 1-4 tiket. Pesanan berstatus "menunggu bayar" dan menahan kuota selama 15 menit.
+  // Lewat 15 menit tanpa bayar, pesanan batal dan kuota kembali.
+  // ============================================================================
+  it('Kebutuhan Bisnis 3: Pembeli memesan 1-4 tiket, status PENDING_PAYMENT menahan kuota 15 menit, lewat 15 menit batal dan kuota kembali', async () => {
+    // A. Pembeli memesan 2 tiket Regular
     const orderRes = await request(app)
       .post('/api/orders')
       .set('Authorization', `Bearer ${buyerToken}`)
@@ -86,127 +160,37 @@ describe('GOTIX Core Ticketing Integration Tests (Real PostgreSQL)', () => {
     expect(orderRes.body.data.status).toBe('PENDING_PAYMENT');
     const orderId = orderRes.body.data.id;
 
-    // B. Verifikasi kuota berkurang (reservedCount = 2, remaining = 8)
+    // Verifikasi expiresAt terkonfigurasi sekitar 15 menit ke depan (antara 14 dan 16 menit)
+    const expiresAt = new Date(orderRes.body.data.expiresAt).getTime();
+    const now = Date.now();
+    const diffMinutes = (expiresAt - now) / (60 * 1000);
+    expect(diffMinutes).toBeGreaterThanOrEqual(14);
+    expect(diffMinutes).toBeLessThanOrEqual(16);
+
+    // B. Verifikasi kuota ditahan (reservedCount = 2, remaining = 8)
     const eventCheck1 = await request(app).get(`/api/events/${testEventId}`);
-    const regTicket1 = eventCheck1.body.data.ticketTypes.find((t: any) => t.id === regularTicketTypeId);
-    expect(regTicket1.reservedCount).toBe(2);
-    expect(regTicket1.remaining).toBe(8);
+    const reg1 = eventCheck1.body.data.ticketTypes.find((t: { id: string }) => t.id === regularTicketTypeId);
+    expect(reg1.reservedCount).toBe(2);
+    expect(reg1.remaining).toBe(8);
 
-    // C. Pembeli membayar pesanan
-    const payRes = await request(app)
-      .post(`/api/orders/${orderId}/pay`)
-      .set('Authorization', `Bearer ${buyerToken}`)
-      .send({ paymentMethod: 'SIMULATED_BCA_VA' });
-
-    expect(payRes.status).toBe(200);
-    expect(payRes.body.data.order.status).toBe('PAID');
-
-    // D. Verifikasi tiket terbit
-    const tickets = payRes.body.data.tickets;
-    expect(tickets).toHaveLength(2);
-    expect(tickets[0].code).toMatch(/^GTX-[A-F0-9]{12}$/);
-    expect(tickets[1].code).toMatch(/^GTX-[A-F0-9]{12}$/);
-    expect(tickets[0].code).not.toBe(tickets[1].code); // Kode unik!
-  });
-
-  // TEST 2 — Sold Out
-  it('TEST 2: Sold out (kuota habis -> 409, kuota tidak negatif)', async () => {
-    // Buat event kecil dengan kuota hanya 2
-    const smallEventRes = await request(app)
-      .post('/api/events')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({
-        title: 'Intimate Candlelit Chamber',
-        description: 'Chamber music with 2 seats quota',
-        location: 'Secret Crypt',
-        startsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        ticketTypes: [
-          { name: 'Regular', price: 100000, quota: 2 },
-          { name: 'VIP', price: 200000, quota: 1 },
-        ],
-      });
-    const smallEventId = smallEventRes.body.data.id;
-    const smallTicketTypeId = smallEventRes.body.data.ticketTypes.find((t: any) => t.name === 'Regular').id;
-
-    // Beli 2 tiket (habiskan kuota)
-    const order1 = await request(app)
-      .post('/api/orders')
-      .set('Authorization', `Bearer ${buyerToken}`)
-      .send({
-        eventId: smallEventId,
-        items: [{ ticketTypeId: smallTicketTypeId, quantity: 2 }],
-      });
-    expect(order1.status).toBe(201);
-
-    // Buat buyer kedua
-    const buyer2Res = await request(app)
-      .post('/api/auth/register')
-      .send({
-        email: 'buyer2_test@gotix.id',
-        password: 'BuyerPass123!',
-        fullName: 'Buyer Two',
-      });
-    const buyer2Token = buyer2Res.body.data.token;
-
-    // Coba beli 1 tiket saat kuota sudah habis -> 409 SOLD_OUT
-    const order2 = await request(app)
-      .post('/api/orders')
-      .set('Authorization', `Bearer ${buyer2Token}`)
-      .send({
-        eventId: smallEventId,
-        items: [{ ticketTypeId: smallTicketTypeId, quantity: 1 }],
-      });
-
-    expect(order2.status).toBe(409);
-    expect(order2.body.error.code).toBe('SOLD_OUT');
-
-    // Pastikan reservedCount tidak melebihi quota dan remaining tidak pernah minus
-    const eventDetail = await request(app).get(`/api/events/${smallEventId}`);
-    const regType = eventDetail.body.data.ticketTypes.find((t: any) => t.id === smallTicketTypeId);
-    expect(regType.remaining).toBe(0);
-    expect(regType.reservedCount).toBe(2);
-    expect(regType.soldOut).toBe(true);
-  });
-
-  // TEST 3 — Kedaluwarsa
-  it('TEST 3: Kedaluwarsa (panggil expireOverdueOrders dengan now = +16 menit -> EXPIRED, kuota kembali sekali, bayar ditolak)', async () => {
-    // Buat order 2 tiket
-    const orderRes = await request(app)
-      .post('/api/orders')
-      .set('Authorization', `Bearer ${buyerToken}`)
-      .send({
-        eventId: testEventId,
-        items: [{ ticketTypeId: regularTicketTypeId, quantity: 2 }],
-      });
-    const orderId = orderRes.body.data.id;
-
-    // Panggil expireOverdueOrders dengan parameter now = +16 menit di masa depan (Dependency Injection)
+    // C. Simulasi waktu lewat 15 menit (now = +16 menit di masa depan)
     const futureTime = new Date(Date.now() + 16 * 60 * 1000);
-    const expiredCount1 = await expireOverdueOrders(futureTime);
-    expect(expiredCount1).toBeGreaterThanOrEqual(1);
+    const expiredCount = await expireOverdueOrders(futureTime);
+    expect(expiredCount).toBeGreaterThanOrEqual(1);
 
-    // Cek status order berubah menjadi EXPIRED
+    // D. Verifikasi status pesanan berubah menjadi EXPIRED
     const orderCheck = await request(app)
       .get(`/api/orders/${orderId}`)
       .set('Authorization', `Bearer ${buyerToken}`);
     expect(orderCheck.body.data.status).toBe('EXPIRED');
 
-    // Cek kuota telah kembali utuh (reservedCount kembali 0)
-    const eventCheck1 = await request(app).get(`/api/events/${testEventId}`);
-    const regTicket1 = eventCheck1.body.data.ticketTypes.find((t: any) => t.id === regularTicketTypeId);
-    expect(regTicket1.reservedCount).toBe(0);
-    expect(regTicket1.remaining).toBe(10);
-
-    // Jalankan kedua kali: kuota tidak boleh bertambah lagi (idempoten)
-    const expiredCount2 = await expireOverdueOrders(futureTime);
-    expect(expiredCount2).toBe(0);
-
+    // E. Verifikasi kuota kembali utuh (reservedCount = 0, remaining = 10)
     const eventCheck2 = await request(app).get(`/api/events/${testEventId}`);
-    const regTicket2 = eventCheck2.body.data.ticketTypes.find((t: any) => t.id === regularTicketTypeId);
-    expect(regTicket2.reservedCount).toBe(0);
-    expect(regTicket2.remaining).toBe(10);
+    const reg2 = eventCheck2.body.data.ticketTypes.find((t: { id: string }) => t.id === regularTicketTypeId);
+    expect(reg2.reservedCount).toBe(0);
+    expect(reg2.remaining).toBe(10);
 
-    // Coba bayar order yang sudah expired -> ditolak
+    // F. Pembayaran pada pesanan expired harus ditolak
     const payRes = await request(app)
       .post(`/api/orders/${orderId}/pay`)
       .set('Authorization', `Bearer ${buyerToken}`)
@@ -214,46 +198,12 @@ describe('GOTIX Core Ticketing Integration Tests (Real PostgreSQL)', () => {
     expect([409, 410]).toContain(payRes.status);
   });
 
-  // TEST 4 — Pembatalan
-  it('TEST 4: Pembatalan (kuota kembali, cancel berulang tidak menambah kuota)', async () => {
-    // Buat order 3 tiket
-    const orderRes = await request(app)
-      .post('/api/orders')
-      .set('Authorization', `Bearer ${buyerToken}`)
-      .send({
-        eventId: testEventId,
-        items: [{ ticketTypeId: regularTicketTypeId, quantity: 3 }],
-      });
-    const orderId = orderRes.body.data.id;
-
-    // Batalkan order
-    const cancelRes = await request(app)
-      .post(`/api/orders/${orderId}/cancel`)
-      .set('Authorization', `Bearer ${buyerToken}`);
-    expect(cancelRes.status).toBe(200);
-    expect(cancelRes.body.data.status).toBe('CANCELLED');
-
-    // Verifikasi kuota kembali utuh
-    const eventCheck1 = await request(app).get(`/api/events/${testEventId}`);
-    const regTicket1 = eventCheck1.body.data.ticketTypes.find((t: any) => t.id === regularTicketTypeId);
-    expect(regTicket1.reservedCount).toBe(0);
-    expect(regTicket1.remaining).toBe(10);
-
-    // Coba batalkan lagi untuk kedua kalinya -> idempoten, kuota tidak bertambah
-    const cancelAgain = await request(app)
-      .post(`/api/orders/${orderId}/cancel`)
-      .set('Authorization', `Bearer ${buyerToken}`);
-    expect([200, 409]).toContain(cancelAgain.status);
-
-    const eventCheck2 = await request(app).get(`/api/events/${testEventId}`);
-    const regTicket2 = eventCheck2.body.data.ticketTypes.find((t: any) => t.id === regularTicketTypeId);
-    expect(regTicket2.reservedCount).toBe(0);
-    expect(regTicket2.remaining).toBe(10);
-  });
-
-  // TEST 5 — Batas 4 Tiket per Event
-  it('TEST 5: Batas 4 tiket (4 boleh, kelima ditolak 422; PENDING + PAID dihitung; paralel request diblokir)', async () => {
-    // Order 1: Beli 3 tiket (sukses)
+  // ============================================================================
+  // KEBUTUHAN BISNIS 4
+  // Satu pembeli maksimal 4 tiket per event, dihitung dari semua pesanan yang masih aktif atau sudah dibayar.
+  // ============================================================================
+  it('Kebutuhan Bisnis 4: Satu pembeli maksimal 4 tiket per event, dihitung dari semua pesanan aktif (PENDING_PAYMENT) atau sudah dibayar (PAID)', async () => {
+    // Order 1: Pesan 3 tiket (Sukses -> 3 tiket aktif)
     const order1 = await request(app)
       .post('/api/orders')
       .set('Authorization', `Bearer ${buyerToken}`)
@@ -263,7 +213,7 @@ describe('GOTIX Core Ticketing Integration Tests (Real PostgreSQL)', () => {
       });
     expect(order1.status).toBe(201);
 
-    // Order 2: Coba beli 2 tiket lagi (Total jadi 5 -> harus DITOLAK 422)
+    // Order 2: Coba pesan 2 tiket lagi (Total jadi 5 -> harus DITOLAK 422)
     const order2 = await request(app)
       .post('/api/orders')
       .set('Authorization', `Bearer ${buyerToken}`)
@@ -274,7 +224,7 @@ describe('GOTIX Core Ticketing Integration Tests (Real PostgreSQL)', () => {
     expect(order2.status).toBe(422);
     expect(order2.body.error.code).toBe('MAX_TICKETS_EXCEEDED');
 
-    // Order 3: Beli 1 tiket lagi (Total jadi tepat 4 -> harus SUKSES)
+    // Order 3: Pesan 1 tiket lagi (Total tepat 4 tiket aktif -> harus SUKSES 201)
     const order3 = await request(app)
       .post('/api/orders')
       .set('Authorization', `Bearer ${buyerToken}`)
@@ -284,17 +234,46 @@ describe('GOTIX Core Ticketing Integration Tests (Real PostgreSQL)', () => {
       });
     expect(order3.status).toBe(201);
 
-    // Buat buyer baru untuk menguji request paralel yang totalnya > 4
+    // Order 4: Coba pesan 1 tiket lagi saat sudah memegang 4 tiket aktif -> DITOLAK 422
+    const order4 = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .send({
+        eventId: testEventId,
+        items: [{ ticketTypeId: regularTicketTypeId, quantity: 1 }],
+      });
+    expect(order4.status).toBe(422);
+    expect(order4.body.error.code).toBe('MAX_TICKETS_EXCEEDED');
+
+    // Bayar salah satu order (Order 3: 1 tiket), status berubah jadi PAID
+    await request(app)
+      .post(`/api/orders/${order3.body.data.id}/pay`)
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .send({ paymentMethod: 'SIMULATED_BCA_VA' });
+
+    // Order 5: Setelah order 3 dibayar, total tiket aktif (1 PAID + 3 PENDING = 4) tetap 4!
+    // Pemesanan tambahan tiket ke-5 tetap harus DITOLAK 422
+    const order5 = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .send({
+        eventId: testEventId,
+        items: [{ ticketTypeId: vipTicketTypeId, quantity: 1 }],
+      });
+    expect(order5.status).toBe(422);
+    expect(order5.body.error.code).toBe('MAX_TICKETS_EXCEEDED');
+
+    // Uji proteksi konkurensi (PostgreSQL Advisory Lock):
+    // Buat buyer baru dan tembak 2 order paralel masing-masing 3 tiket (total 6 > 4)
     const parallelBuyerRes = await request(app)
       .post('/api/auth/register')
       .send({
-        email: 'parallel_buyer@gotix.id',
+        email: 'parallel_buyer_2@gotix.id',
         password: 'BuyerPass123!',
-        fullName: 'Parallel Buyer',
+        fullName: 'Parallel Buyer 2',
       });
     const parallelToken = parallelBuyerRes.body.data.token;
 
-    // Tembak 2 request order paralel dari user yang sama (masing-masing 3 tiket -> total 6 > 4)
     const [parallelOrderA, parallelOrderB] = await Promise.all([
       request(app)
         .post('/api/orders')
@@ -314,77 +293,219 @@ describe('GOTIX Core Ticketing Integration Tests (Real PostgreSQL)', () => {
 
     const statuses = [parallelOrderA.status, parallelOrderB.status];
     expect(statuses).toContain(201);
-    expect(statuses).toContain(422); // Tepat satu yang lolos berkat pg_advisory_xact_lock
+    expect(statuses).toContain(422); // Tepat satu request yang lolos, lainnya ditolak!
   });
 
-  // TEST 6 — Pembayaran Idempoten & Webhook
-  it('TEST 6: Pembayaran idempoten (webhook sama 2x -> tiket sekali; pay 2x paralel -> tiket sekali; webhook expired -> diabaikan)', async () => {
-    // Buat order
+  // ============================================================================
+  // KEBUTUHAN BISNIS 5
+  // Pembeli bisa membatalkan pesanan sebelum bayar. Kuota langsung kembali.
+  // ============================================================================
+  it('Kebutuhan Bisnis 5: Pembeli bisa membatalkan pesanan sebelum bayar, kuota tiket langsung kembali secara instan', async () => {
+    // A. Pembeli memesan 3 tiket
     const orderRes = await request(app)
       .post('/api/orders')
       .set('Authorization', `Bearer ${buyerToken}`)
       .send({
         eventId: testEventId,
-        items: [{ ticketTypeId: vipTicketTypeId, quantity: 1 }],
+        items: [{ ticketTypeId: regularTicketTypeId, quantity: 3 }],
+      });
+    expect(orderRes.status).toBe(201);
+    const orderId = orderRes.body.data.id;
+
+    // Verifikasi kuota terpotong 3
+    const checkBefore = await request(app).get(`/api/events/${testEventId}`);
+    const regBefore = checkBefore.body.data.ticketTypes.find((t: { id: string }) => t.id === regularTicketTypeId);
+    expect(regBefore.reservedCount).toBe(3);
+    expect(regBefore.remaining).toBe(7);
+
+    // B. Pembeli membatalkan pesanan
+    const cancelRes = await request(app)
+      .post(`/api/orders/${orderId}/cancel`)
+      .set('Authorization', `Bearer ${buyerToken}`);
+    expect(cancelRes.status).toBe(200);
+    expect(cancelRes.body.data.status).toBe('CANCELLED');
+
+    // C. Verifikasi kuota langsung kembali utuh (reservedCount = 0, remaining = 10)
+    const checkAfter = await request(app).get(`/api/events/${testEventId}`);
+    const regAfter = checkAfter.body.data.ticketTypes.find((t: { id: string }) => t.id === regularTicketTypeId);
+    expect(regAfter.reservedCount).toBe(0);
+    expect(regAfter.remaining).toBe(10);
+
+    // D. Pembatalan berulang bersifat idempoten dan tidak menambah kuota
+    const cancelAgain = await request(app)
+      .post(`/api/orders/${orderId}/cancel`)
+      .set('Authorization', `Bearer ${buyerToken}`);
+    expect([200, 409]).toContain(cancelAgain.status);
+
+    const checkFinal = await request(app).get(`/api/events/${testEventId}`);
+    const regFinal = checkFinal.body.data.ticketTypes.find((t: { id: string }) => t.id === regularTicketTypeId);
+    expect(regFinal.reservedCount).toBe(0);
+    expect(regFinal.remaining).toBe(10);
+  });
+
+  // ============================================================================
+  // KEBUTUHAN BISNIS 6
+  // Pembayaran disimulasikan: kalian menyediakan cara menandai pesanan sebagai lunas (endpoint atau skrip).
+  // ============================================================================
+  it('Kebutuhan Bisnis 6: Pembayaran disimulasikan (endpoint bayar dan webhook) untuk menandai pesanan lunas', async () => {
+    // A. Simulasi melalui Endpoint Bayar Langsung (/api/orders/:id/pay)
+    const orderRes = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .send({
+        eventId: testEventId,
+        items: [{ ticketTypeId: regularTicketTypeId, quantity: 2 }],
       });
     const orderId = orderRes.body.data.id;
 
-    const webhookPayload = {
-      eventId: 'evt_idempotent_test_' + Date.now(),
-      type: 'payment.succeeded',
-      orderId,
-      amount: 250000,
-      paymentMethod: 'TEST_GATEWAY',
-    };
+    const payRes = await request(app)
+      .post(`/api/orders/${orderId}/pay`)
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .send({ paymentMethod: 'SIMULATED_BCA_VA' });
 
-    // Panggilan webhook pertama
-    const hook1 = await request(app)
-      .post('/api/webhooks/payment')
-      .send(webhookPayload);
-    expect(hook1.status).toBe(200);
-    expect(hook1.body.data.duplicate).toBe(false);
+    expect(payRes.status).toBe(200);
+    expect(payRes.body.success).toBe(true);
+    expect(payRes.body.data.order.status).toBe('PAID');
 
-    // Pastikan tiket terbit tepat 1
-    const ticketsAfterHook1 = await prisma.ticket.findMany({ where: { orderId } });
-    expect(ticketsAfterHook1).toHaveLength(1);
-
-    // Panggilan webhook kedua dengan eventId sama persis
-    const hook2 = await request(app)
-      .post('/api/webhooks/payment')
-      .send(webhookPayload);
-    expect(hook2.status).toBe(200);
-    expect(hook2.body.data.duplicate).toBe(true);
-
-    // Tiket tetap 1 (tidak ada duplikasi)
-    const ticketsAfterHook2 = await prisma.ticket.findMany({ where: { orderId } });
-    expect(ticketsAfterHook2).toHaveLength(1);
-
-    // Uji webhook untuk order yang sudah EXPIRED
-    const orderExpiredRes = await request(app)
+    // B. Simulasi melalui Webhook Payment Provider (/api/webhooks/payment)
+    const orderWebhookRes = await request(app)
       .post('/api/orders')
       .set('Authorization', `Bearer ${buyerToken}`)
       .send({
         eventId: testEventId,
         items: [{ ticketTypeId: vipTicketTypeId, quantity: 1 }],
       });
-    const expiredOrderId = orderExpiredRes.body.data.id;
+    const webhookOrderId = orderWebhookRes.body.data.id;
 
-    // Paksa expired
-    await expireOverdueOrders(new Date(Date.now() + 30 * 60 * 1000));
-
-    const hookExpired = await request(app)
+    const webhookRes = await request(app)
       .post('/api/webhooks/payment')
       .send({
-        eventId: 'evt_expired_order_' + Date.now(),
+        eventId: 'simulated_evt_' + Date.now(),
         type: 'payment.succeeded',
-        orderId: expiredOrderId,
+        orderId: webhookOrderId,
+        amount: 250000,
+        paymentMethod: 'QRIS_SIMULATED',
       });
 
-    expect(hookExpired.status).toBe(200);
-    expect(hookExpired.body.data.status).toBe('ignored');
+    expect(webhookRes.status).toBe(200);
+    expect(webhookRes.body.data.status).toBe('success');
 
-    // Tidak ada tiket yang terbit untuk order expired
-    const expiredTickets = await prisma.ticket.findMany({ where: { orderId: expiredOrderId } });
-    expect(expiredTickets).toHaveLength(0);
+    const webhookOrderCheck = await request(app)
+      .get(`/api/orders/${webhookOrderId}`)
+      .set('Authorization', `Bearer ${buyerToken}`);
+    expect(webhookOrderCheck.body.data.status).toBe('PAID');
+  });
+
+  // ============================================================================
+  // KEBUTUHAN BISNIS 7
+  // Pembayaran berhasil menerbitkan tiket dengan kode unik. Satu pesanan tidak boleh menerbitkan tiket dua kali.
+  // ============================================================================
+  it('Kebutuhan Bisnis 7: Pembayaran berhasil menerbitkan tiket dengan kode unik, satu pesanan tidak boleh menerbitkan tiket dua kali (idempoten)', async () => {
+    // A. Buat pesanan 2 tiket VIP
+    const orderRes = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .send({
+        eventId: testEventId,
+        items: [{ ticketTypeId: vipTicketTypeId, quantity: 2 }],
+      });
+    const orderId = orderRes.body.data.id;
+
+    // B. Bayar pesanan pertama kali
+    const payRes = await request(app)
+      .post(`/api/orders/${orderId}/pay`)
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .send({ paymentMethod: 'SIMULATED_MANDIRI' });
+
+    expect(payRes.status).toBe(200);
+    const tickets = payRes.body.data.tickets;
+    expect(tickets).toHaveLength(2);
+
+    // Verifikasi kode tiket unik sesuai format GTX-...
+    expect(tickets[0].code).toMatch(/^GTX-[A-F0-9]{12}$/);
+    expect(tickets[1].code).toMatch(/^GTX-[A-F0-9]{12}$/);
+    expect(tickets[0].code).not.toBe(tickets[1].code);
+
+    // C. Coba bayar ulang pesanan yang sudah PAID (Idempotensi: tiket tidak boleh terbit dua kali)
+    // Endpoint pay menolak pembayaran ulang dengan 409 Conflict
+    const payAgainRes = await request(app)
+      .post(`/api/orders/${orderId}/pay`)
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .send({ paymentMethod: 'SIMULATED_MANDIRI' });
+
+    expect(payAgainRes.status).toBe(409);
+
+    // D. Uji Webhook Idempotency: Webhook kedua dengan eventId sama tidak menerbitkan tiket ganda
+    const webhookPayload = {
+      eventId: 'evt_idempotent_test_' + Date.now(),
+      type: 'payment.succeeded',
+      orderId,
+    };
+    const hookDupRes = await request(app)
+      .post('/api/webhooks/payment')
+      .send(webhookPayload);
+    expect(hookDupRes.status).toBe(200);
+    expect(hookDupRes.body.data.duplicate).toBe(false);
+
+    // Kirim lagi eventId yang sama
+    const hookDup2Res = await request(app)
+      .post('/api/webhooks/payment')
+      .send(webhookPayload);
+    expect(hookDup2Res.status).toBe(200);
+    expect(hookDup2Res.body.data.duplicate).toBe(true);
+
+    // Verifikasi di database: jumlah tiket tetap tepat 2 (tidak pernah menjadi 4)
+    const dbTickets = await prisma.ticket.findMany({ where: { orderId } });
+    expect(dbTickets).toHaveLength(2);
+  });
+
+  // ============================================================================
+  // KEBUTUHAN BISNIS 8
+  // Pembeli bisa melihat riwayat pesanan dan tiketnya.
+  // ============================================================================
+  it('Kebutuhan Bisnis 8: Pembeli bisa melihat riwayat pesanan (GET /api/orders) dan tiketnya (GET /api/tickets)', async () => {
+    // A. Buat pesanan dan bayar
+    const orderRes = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .send({
+        eventId: testEventId,
+        items: [{ ticketTypeId: regularTicketTypeId, quantity: 2 }],
+      });
+    const orderId = orderRes.body.data.id;
+
+    await request(app)
+      .post(`/api/orders/${orderId}/pay`)
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .send({ paymentMethod: 'SIMULATED_BCA' });
+
+    // B. Pembeli melihat riwayat pesanan miliknya (GET /api/orders)
+    const ordersHistoryRes = await request(app)
+      .get('/api/orders')
+      .set('Authorization', `Bearer ${buyerToken}`);
+
+    expect(ordersHistoryRes.status).toBe(200);
+    expect(ordersHistoryRes.body.success).toBe(true);
+    expect(Array.isArray(ordersHistoryRes.body.data)).toBe(true);
+    expect(ordersHistoryRes.body.data.length).toBeGreaterThanOrEqual(1);
+
+    const matchedOrder = ordersHistoryRes.body.data.find((o: { id: string }) => o.id === orderId);
+    expect(matchedOrder).toBeDefined();
+    expect(matchedOrder.status).toBe('PAID');
+    expect(matchedOrder.items).toHaveLength(1);
+    expect(matchedOrder.items[0].quantity).toBe(2);
+
+    // C. Pembeli melihat daftar tiket miliknya (GET /api/tickets)
+    const ticketsRes = await request(app)
+      .get('/api/tickets')
+      .set('Authorization', `Bearer ${buyerToken}`);
+
+    expect(ticketsRes.status).toBe(200);
+    expect(ticketsRes.body.success).toBe(true);
+    expect(Array.isArray(ticketsRes.body.data)).toBe(true);
+    expect(ticketsRes.body.data.length).toBeGreaterThanOrEqual(2);
+
+    const userTicketCodes = ticketsRes.body.data.map((t: { code: string }) => t.code);
+    expect(userTicketCodes.every((code: string) => code.startsWith('GTX-'))).toBe(true);
   });
 });

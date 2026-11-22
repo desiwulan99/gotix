@@ -81,13 +81,13 @@ export class OrderService {
 
             const currentActive = Number(activeCountRows[0]?.total || 0);
             const maxPerUser = parseInt(
-              process.env.MAX_TICKETS_PER_USER || (process.env.NODE_ENV === 'test' ? '4' : '1000'),
+              process.env.MAX_TICKETS_PER_USER || '4',
               10
             );
 
             if (currentActive + totalRequested > maxPerUser) {
               throw new UnprocessableEntityError(
-                `Batas maksimal pembelian adalah ${maxPerUser} tiket per event. Anda saat ini memiliki ${currentActive} tiket aktif. Penambahan ${totalRequested} tiket melebihi batas.`,
+                `Batas maksimal pembelian adalah ${maxPerUser} tiket per event (dihitung dari tiket aktif / PAID + PENDING). Anda saat ini memiliki ${currentActive} tiket aktif. Penambahan ${totalRequested} tiket melebihi batas.`,
                 'MAX_TICKETS_EXCEEDED'
               );
             }

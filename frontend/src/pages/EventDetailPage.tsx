@@ -5,7 +5,7 @@ import { Event } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/Button';
 import { EventPoster } from '../components/EventPoster';
-import { calcTotal, formatRupiah } from '../lib/ticketRules';
+import { calcTotal, formatRupiah, maxSelectable } from '../lib/ticketRules';
 
 export const EventDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -17,6 +17,7 @@ export const EventDetailPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [userActiveTickets, setUserActiveTickets] = useState<number>(0);
 
   useEffect(() => {
     const fetchEvent = async () => {
@@ -31,6 +32,32 @@ export const EventDetailPage: React.FC = () => {
     };
     fetchEvent();
   }, [id]);
+
+  // Ambil jumlah tiket aktif (PAID + PENDING) milik user untuk event ini
+  useEffect(() => {
+    if (!user || !id) return;
+    const fetchActiveTickets = async () => {
+      try {
+        const res = await api.get('/orders');
+        const orders = res.data.data?.items || res.data.data || [];
+        const activeCount = orders
+          .filter((o: any) => {
+            if (o.eventId !== id) return false;
+            if (o.status === 'PAID') return true;
+            if (o.status === 'PENDING_PAYMENT' && new Date(o.expiresAt) > new Date()) return true;
+            return false;
+          })
+          .reduce((sum: number, o: any) => {
+            const itemsQty = o.items?.reduce((s: number, it: any) => s + (it.quantity || 0), 0) || 0;
+            return sum + itemsQty;
+          }, 0);
+        setUserActiveTickets(activeCount);
+      } catch (_err) {
+        // Silently ignore if orders cannot be fetched
+      }
+    };
+    fetchActiveTickets();
+  }, [user, id]);
 
   if (isLoading) {
     return (
@@ -61,8 +88,28 @@ export const EventDetailPage: React.FC = () => {
     const currentQty = quantities[ticketTypeId] || 0;
     const targetQty = currentQty + delta;
     if (targetQty < 0) return;
-    // Dibatasi langsung oleh sisa kuota event (misal 50 dari 50, maka maksimal 50)
-    if (targetQty > remaining) return;
+
+    // Batas maksimal mutlak: 4 tiket per event (akumulasi tiket aktif user + tiket yang sedang dipilih)
+    const remainingAllowance = Math.max(0, 4 - userActiveTickets);
+
+    // Hitung proyeksi total tiket baru jika perubahan ini diterapkan
+    const newTotal = Object.entries(quantities).reduce((sum, [id, qty]) => {
+      return sum + (id === ticketTypeId ? targetQty : qty);
+    }, 0);
+
+    // Jika total tiket baru melebihi batas 4 tiket atau melebihi sisa allowance user, tolak seketika
+    if (delta > 0 && (newTotal > remainingAllowance || newTotal > 4)) {
+      return;
+    }
+
+    // Hitung tiket yang sudah dipilih di tipe tiket lainnya
+    const selectedInOtherTypes = Object.entries(quantities)
+      .filter(([id]) => id !== ticketTypeId)
+      .reduce((sum, [_, qty]) => sum + qty, 0);
+
+    // Dibatasi oleh sisa kuota kursi & batas 4 tiket aktif per pemesan
+    const maxAllowed = Math.min(remaining, Math.max(0, remainingAllowance - selectedInOtherTypes));
+    if (targetQty > maxAllowed) return;
 
     setQuantities({
       ...quantities,
@@ -86,6 +133,11 @@ export const EventDetailPage: React.FC = () => {
 
     if (totalTicketsSelected === 0) {
       setErrorMsg('Silakan pilih minimal 1 tiket untuk melanjutkan pemesanan.');
+      return;
+    }
+
+    if (totalTicketsSelected > 4 || (userActiveTickets + totalTicketsSelected > 4)) {
+      setErrorMsg('Batas maksimal pembelian adalah 4 tiket per event (dihitung dari pesanan aktif atau sudah dibayar).');
       return;
     }
 
@@ -189,12 +241,37 @@ export const EventDetailPage: React.FC = () => {
                   PILIHAN TIKET
                 </h2>
                 <span className="text-[11px] font-cinzel text-dusk-rose tracking-wider uppercase">
-                  ✦ REAL-TIME QUOTA ALLOCATION
+                  ✦ MAKSIMAL 4 TIKET AKTIF
                 </span>
               </div>
               <p className="text-xs text-silver-mist/70 font-inter leading-relaxed">
-                Pilih jumlah tiket yang diinginkan. Pemesanan tiket dibatasi langsung oleh sisa kuota kursi yang tersedia pada setiap kategori pertunjukan.
+                Satu pembeli maksimal 4 tiket per event (dihitung dari tiket aktif / PAID + PENDING).
               </p>
+
+              {/* Status Tiket Aktif Milik User */}
+              {user && (
+                <div className="mt-3 p-3 bg-obsidian border border-silver-mist/20 text-xs text-silver-mist flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <span>
+                    Tiket aktif Anda saat ini:{' '}
+                    <strong className="text-dusk-rose font-semibold">{userActiveTickets} tiket</strong> (PAID + PENDING)
+                  </span>
+                  <span className="text-[11px] font-cinzel text-ivory">
+                    Sisa jatah: <strong className="text-dusk-rose">{Math.max(0, 4 - userActiveTickets)}</strong> tiket
+                  </span>
+                </div>
+              )}
+
+              {/* Peringatan jika sudah mencapai 4 tiket */}
+              {user && userActiveTickets >= 4 && (
+                <div className="mt-3 p-3.5 bg-royal-plum/30 border border-dusk-rose/60 text-center">
+                  <span className="font-cinzel text-xs tracking-wider text-dusk-rose uppercase block mb-1">
+                    ✦ Batas Maksimal 4 Tiket Aktif Tercapai ✦
+                  </span>
+                  <p className="text-[11px] text-silver-mist/80">
+                    Anda sudah memiliki 4 tiket aktif (PAID / PENDING) untuk event ini. Anda tidak dapat memesan tiket tambahan sampai pesanan dibatalkan atau kedaluwarsa.
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Daftar Tipe Tiket */}
@@ -203,7 +280,14 @@ export const EventDetailPage: React.FC = () => {
                 const remaining = tt.remaining ?? (tt.quota - tt.reservedCount);
                 const isSoldOut = remaining <= 0;
                 const currentQty = quantities[tt.id] || 0;
-                const isMaxReached = currentQty >= remaining;
+
+                // Hitung tiket yang sudah dipilih di tipe tiket lainnya
+                const selectedInOtherTypes = Object.entries(quantities)
+                  .filter(([id]) => id !== tt.id)
+                  .reduce((sum, [_, qty]) => sum + qty, 0);
+
+                const maxAllowed = maxSelectable(remaining, selectedInOtherTypes, userActiveTickets);
+                const isMaxReached = currentQty >= maxAllowed;
 
                 // Progress bar sisa kuota tipis
                 const percentRemaining = tt.quota > 0 ? (remaining / tt.quota) * 100 : 0;
@@ -273,14 +357,16 @@ export const EventDetailPage: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => handleStepperChange(tt.id, 1, remaining)}
-                          disabled={isMaxReached || isSoldOut}
+                          disabled={isMaxReached || isSoldOut || (userActiveTickets + totalTicketsSelected >= 4)}
                           className="w-10 h-10 flex items-center justify-center bg-obsidian border border-silver-mist/30 text-ivory hover:border-dusk-rose disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-base font-inter"
                           aria-label={`Tambah ${tt.name}`}
                           title={
                             isSoldOut
                               ? 'Tiket habis terjual'
+                              : userActiveTickets + totalTicketsSelected >= 4
+                              ? 'Batas maksimal 4 tiket aktif per pemesan tercapai'
                               : isMaxReached
-                              ? `Maksimal kuota (${remaining} kursi) telah tercapai`
+                              ? `Maksimal pilihan (${maxAllowed} tiket) telah tercapai`
                               : `Tambah 1 ${tt.name}`
                           }
                         >
@@ -315,7 +401,13 @@ export const EventDetailPage: React.FC = () => {
                 variant="primary"
                 size="lg"
                 onClick={handleReserve}
-                disabled={totalTicketsSelected === 0 || isSubmitting}
+                disabled={
+                  totalTicketsSelected === 0 ||
+                  totalTicketsSelected > 4 ||
+                  isSubmitting ||
+                  userActiveTickets >= 4 ||
+                  (userActiveTickets + totalTicketsSelected > 4)
+                }
                 isLoading={isSubmitting}
                 className="w-full sm:w-auto px-10"
               >
