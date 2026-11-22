@@ -1,7 +1,7 @@
 {
   "testName": "Concurrency 200 requests against 100 quota",
-  "timestamp": "2026-11-22T00:04:44.492Z",
-  "durationMs": 1267,
+  "timestamp": "2026-11-22T04:05:48.646Z",
+  "durationMs": 1004,
   "totalRequests": 200,
   "quotaInitial": 100,
   "successCount": 100,

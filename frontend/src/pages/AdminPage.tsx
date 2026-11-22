@@ -62,14 +62,32 @@ export const AdminPage: React.FC = () => {
 
   const handleCreateEvent = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitting(true);
     setMessage(null);
+
+    if (!title.trim() || title.trim().length < 3) {
+      setMessage({ type: 'error', text: 'Judul event minimal 3 karakter' });
+      return;
+    }
+    if (!description.trim() || description.trim().length < 3) {
+      setMessage({ type: 'error', text: 'Deskripsi event minimal 3 karakter' });
+      return;
+    }
+    if (!location.trim() || location.trim().length < 3) {
+      setMessage({ type: 'error', text: 'Lokasi event minimal 3 karakter' });
+      return;
+    }
+    if (!startsAt) {
+      setMessage({ type: 'error', text: 'Waktu pelaksanaan event wajib diisi' });
+      return;
+    }
+
+    setIsSubmitting(true);
 
     try {
       await api.post('/events', {
-        title,
-        description,
-        location,
+        title: title.trim(),
+        description: description.trim(),
+        location: location.trim(),
         startsAt: new Date(startsAt).toISOString(),
         ticketTypes: [
           { name: 'Regular', price: Number(regularPrice), quota: Number(regularQuota) },

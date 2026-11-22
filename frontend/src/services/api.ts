@@ -34,11 +34,21 @@ api.interceptors.response.use(
       }
     }
 
-    const message =
-      error.response?.data?.error?.message ||
+    const errData = error.response?.data?.error;
+    let message =
+      errData?.message ||
       error.response?.data?.message ||
       error.message ||
       'Terjadi kesalahan saat menghubungi server';
+
+    if (errData?.details && Array.isArray(errData.details) && errData.details.length > 0) {
+      const detailMessages = errData.details
+        .map((d: any) => d.message)
+        .filter(Boolean);
+      if (detailMessages.length > 0) {
+        message = `${message}: ${detailMessages.join(', ')}`;
+      }
+    }
 
     return Promise.reject(new Error(message));
   }

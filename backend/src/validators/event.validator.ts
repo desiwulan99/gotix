@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const createEventSchema = z.object({
   body: z.object({
     title: z.string().min(3, 'Judul event minimal 3 karakter'),
-    description: z.string().min(10, 'Deskripsi event minimal 10 karakter'),
+    description: z.string().min(3, 'Deskripsi event minimal 3 karakter'),
     location: z.string().min(3, 'Lokasi event minimal 3 karakter'),
     startsAt: z.string().datetime({ message: 'Format tanggal startsAt harus ISO 8601' }).optional(),
     eventDate: z.string().datetime({ message: 'Format tanggal eventDate harus ISO 8601' }).optional(),
