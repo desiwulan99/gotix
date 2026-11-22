@@ -236,4 +236,65 @@ export class EventService {
       },
     });
   }
+
+  /**
+   * Menghapus event beserta seluruh data terkait (tiket, pembayaran, pesanan, tipe tiket)
+   */
+  static async deleteEvent(id: string) {
+    const event = await prisma.event.findUnique({
+      where: { id },
+    });
+
+    if (!event) {
+      throw new NotFoundError('Event tidak ditemukan');
+    }
+
+    return await prisma.$transaction(async (tx) => {
+      // 1. Hapus tiket yang terkait dengan pesanan pada event ini
+      await tx.ticket.deleteMany({
+        where: {
+          order: {
+            eventId: id,
+          },
+        },
+      });
+
+      // 2. Hapus catatan pembayaran yang terkait
+      await tx.payment.deleteMany({
+        where: {
+          order: {
+            eventId: id,
+          },
+        },
+      });
+
+      // 3. Hapus order items
+      await tx.orderItem.deleteMany({
+        where: {
+          order: {
+            eventId: id,
+          },
+        },
+      });
+
+      // 4. Hapus pesanan (orders)
+      await tx.order.deleteMany({
+        where: {
+          eventId: id,
+        },
+      });
+
+      // 5. Hapus tipe tiket
+      await tx.ticketType.deleteMany({
+        where: {
+          eventId: id,
+        },
+      });
+
+      // 6. Hapus event utama
+      return await tx.event.delete({
+        where: { id },
+      });
+    });
+  }
 }

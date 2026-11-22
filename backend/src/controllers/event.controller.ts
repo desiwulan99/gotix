@@ -53,4 +53,13 @@ export class EventController {
       next(error);
     }
   }
+
+  static async deleteEvent(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const deleted = await EventService.deleteEvent(req.params.id);
+      sendSuccess(res, { message: 'Event berhasil dihapus', event: deleted }, 200);
+    } catch (error) {
+      next(error);
+    }
+  }
 }

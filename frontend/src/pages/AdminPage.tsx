@@ -27,6 +27,7 @@ export const AdminPage: React.FC = () => {
   const [vipPrice, setVipPrice] = useState(450000);
   const [vipQuota, setVipQuota] = useState(25);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Route Guard: Hanya role ADMIN yang diizinkan
@@ -105,6 +106,26 @@ export const AdminPage: React.FC = () => {
       setMessage({ type: 'error', text: err.message || 'Gagal membuat event' });
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteEvent = async (id: string, eventTitle: string) => {
+    const confirmed = window.confirm(
+      `Apakah Anda yakin ingin menghapus event "${eventTitle}"?\n\nPerhatian: Seluruh tipe tiket dan histori terkait event ini akan dihapus secara permanen.`
+    );
+    if (!confirmed) return;
+
+    setDeletingId(id);
+    setMessage(null);
+
+    try {
+      await api.delete(`/events/${id}`);
+      setMessage({ type: 'success', text: `Event "${eventTitle}" berhasil dihapus!` });
+      fetchData();
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message || 'Gagal menghapus event' });
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -340,6 +361,7 @@ export const AdminPage: React.FC = () => {
                     <th className="py-3 px-4">Ditahan / Terjual</th>
                     <th className="py-3 px-4">Sisa Kuota</th>
                     <th className="py-3 px-4">Status</th>
+                    <th className="py-3 px-4 text-right">Aksi</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-silver-mist/10">
@@ -365,6 +387,17 @@ export const AdminPage: React.FC = () => {
                       </td>
                       <td className="py-3.5 px-4 whitespace-nowrap">
                         <StatusBadge status={e.soldOut || e.isSoldOut ? 'SOLD_OUT' : 'VALID'} />
+                      </td>
+                      <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteEvent(e.id, e.title)}
+                          disabled={deletingId === e.id}
+                          className="px-2.5 py-1 text-[11px] font-cinzel text-red-400 hover:text-red-300 hover:bg-red-950/30 border border-red-900/40 hover:border-red-700/60 transition-colors disabled:opacity-40"
+                          title="Hapus event ini"
+                        >
+                          {deletingId === e.id ? 'Menghapus...' : 'Hapus'}
+                        </button>
                       </td>
                     </tr>
                   ))}

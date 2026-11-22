@@ -40,4 +40,11 @@ router.post(
   EventController.addTicketType
 );
 
+router.delete(
+  '/:id',
+  authenticate,
+  authorize([Role.ADMIN]),
+  EventController.deleteEvent
+);
+
 export default router;
